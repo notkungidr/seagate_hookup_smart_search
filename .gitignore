@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+bun.lockb
+package-lock.json
+
+# Build outputs
+dist/
+build/
+.output/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Test artifacts
+playwright-report/
+test-results/
+coverage/
+
+# Temp
+*.tmp
+.cache/

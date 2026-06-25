@@ -1,0 +1,21 @@
+{
+  "name": "hookup-smart-search-e2e",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Playwright E2E suite generated from test_cases.md for Seagate Hookup Smart Search.",
+  "scripts": {
+    "install:browsers": "playwright install chromium",
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui",
+    "test:tc1": "playwright test tests/tc1-initial-search.spec.js",
+    "test:tc2": "playwright test tests/tc2-manual-pivot.spec.js",
+    "test:tc3": "playwright test tests/tc3-save-template.spec.js",
+    "test:tc4": "playwright test tests/tc4-run-template.spec.js",
+    "test:tc5": "playwright test tests/tc5-admin-control.spec.js",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.45.0"
+  }
+}

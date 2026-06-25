@@ -1,0 +1,222 @@
+// ============================================================================
+// useAutoStreamingDownload.js
+// Auto-detect large datasets and trigger streaming download
+// ============================================================================
+
+import { ElMessageBox, ElNotification } from 'element-plus';
+
+const LARGE_DATASET_THRESHOLD = 40000; // 40K rows
+
+/**
+ * Check if chain should use streaming download based on data size
+ */
+export function shouldUseStreamingDownload(chainSteps) {
+  if (!chainSteps || chainSteps.length === 0) return false;
+
+  // Check ALL steps (not just master) because child steps can have more rows
+  // Example: DO (307) → plan_id (1,505) → prod_lot (61,481) 🔥
+  const maxRows = Math.max(
+    ...chainSteps
+      .filter(s => !s.isCombined && s.rows?.length)
+      .map(s => s.rows.length)
+  );
+
+  return maxRows > LARGE_DATASET_THRESHOLD;
+}
+
+/**
+ * Get total row count from chain (largest step)
+ */
+export function getTotalRowCount(chainSteps) {
+  if (!chainSteps || chainSteps.length === 0) return 0;
+
+  // Return largest step count (not just master)
+  return Math.max(
+    0,
+    ...chainSteps
+      .filter(s => !s.isCombined && s.rows?.length)
+      .map(s => s.rows.length)
+  );
+}
+
+/**
+ * Auto streaming download with progress
+ */
+export async function autoStreamingDownload({
+  chainSteps,
+  apiBase,
+  onProgress,
+  onComplete,
+  onError
+}) {
+  const totalRows = getTotalRowCount(chainSteps);
+
+  // Confirm with user
+  try {
+    await ElMessageBox.confirm(
+      `📊 ตรวจพบข้อมูลขนาดใหญ่: ${totalRows.toLocaleString()} แถว
+
+🚀 ระบบจะทำ Streaming Download อัตโนมัติ:
+  ✓ Join ข้อมูลทีละแถวฝั่ง server
+  ✓ ไม่ใช้ RAM browser
+  ✓ แสดง Progress Bar real-time
+  ✓ Download CSV อัตโนมัติเมื่อเสร็จ
+
+⏱️ ใช้เวลาประมาณ: ${estimateTime(totalRows)}
+
+ต้องการดำเนินการต่อ?`,
+      'ข้อมูลขนาดใหญ่ — Streaming Download',
+      {
+        type: 'info',
+        confirmButtonText: '🚀 ดำเนินการ',
+        cancelButtonText: 'ยกเลิก'
+      }
+    );
+  } catch {
+    return { success: false, cancelled: true };
+  }
+
+  // Build payload from chain
+  const rootStep = chainSteps[0];
+  const rootTable = rootStep.targetTable || rootStep.table;
+
+  if (!rootTable) {
+    if (onError) {
+      onError(new Error('ไม่พบข้อมูล root table'));
+    }
+    return { success: false, error: 'No root table' };
+  }
+
+  // Extract search conditions
+  let rootConditions = rootStep._searchConditions || [];
+
+  // If no _searchConditions (from template), extract from rows
+  if (rootConditions.length === 0) {
+    if (rootStep.rows && rootStep.rows.length > 0 && rootStep.columnLabel) {
+      const columnKey = rootStep.columnLabel;
+      const uniqueValues = [...new Set(
+        rootStep.rows
+          .map(r => r[columnKey])
+          .filter(v => v != null && v !== '')
+      )];
+
+      if (uniqueValues.length > 0) {
+        rootConditions = [{
+          column: columnKey,
+          operator: 'in',
+          value: uniqueValues
+        }];
+      }
+    }
+  }
+
+  const payload = {
+    rootTable,
+    rootConditions,
+    hops: chainSteps.slice(1).map((step, idx) => ({
+      fromStepIdx: step._pivotFromStepIdx ?? idx,
+      fromColumnKey: step._joinFromDbColumn || 'id',
+      targetTable: step.targetTable || step.table,
+      targetColumn: step._joinToColumn || 'id',
+    })),
+  };
+
+  console.log('[autoStreamingDownload] payload:', JSON.stringify(payload, null, 2));
+
+  try {
+    // Start job
+    const res = await fetch(`${apiBase}/api/combine-job/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const result = await res.json();
+
+    if (!result.success) {
+      throw new Error(result.message);
+    }
+
+    const jobId = result.jobId;
+
+    // Poll progress
+    const pollInterval = setInterval(async () => {
+      try {
+        const statusRes = await fetch(`${apiBase}/api/combine-job/status/${jobId}`);
+        const statusResult = await statusRes.json();
+
+        if (statusResult.success && statusResult.job) {
+          const job = statusResult.job;
+
+          // Update progress
+          if (onProgress) {
+            onProgress({
+              progress: job.progress,
+              status: job.currentStep,
+              processedRows: job.processedRows
+            });
+          }
+
+          // Check if completed
+          if (job.status === 'completed') {
+            clearInterval(pollInterval);
+
+            // Download file
+            const downloadUrl = `${apiBase}/api/combine-job/download/${jobId}`;
+            const a = document.createElement('a');
+            a.href = downloadUrl;
+            a.download = `combined_${jobId}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+
+            // Notify
+            ElNotification({
+              title: '✅ Download สำเร็จ',
+              message: `Streaming CSV: ${job.processedRows.toLocaleString()} แถว`,
+              type: 'success',
+              duration: 5000
+            });
+
+            // Cleanup
+            setTimeout(() => {
+              fetch(`${apiBase}/api/combine-job/${jobId}`, { method: 'DELETE' });
+            }, 1000);
+
+            if (onComplete) {
+              onComplete({ jobId, processedRows: job.processedRows });
+            }
+
+            return { success: true, jobId, rows: job.processedRows };
+
+          } else if (job.status === 'failed') {
+            clearInterval(pollInterval);
+            throw new Error(job.error || 'Job failed');
+          }
+        }
+      } catch (err) {
+        console.error('Poll progress error:', err);
+      }
+    }, 2000);
+
+    return { success: true, jobId, polling: true };
+
+  } catch (err) {
+    console.error('Streaming download error:', err);
+    if (onError) {
+      onError(err);
+    }
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Estimate download time
+ */
+function estimateTime(rows) {
+  if (rows < 100000) return '1-3 นาที';
+  if (rows < 500000) return '3-8 นาที';
+  if (rows < 1000000) return '8-15 นาที';
+  if (rows < 5000000) return '15-40 นาที';
+  return '40-120 นาที';
+}

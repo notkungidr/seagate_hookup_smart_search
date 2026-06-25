@@ -1,0 +1,50 @@
+version: "3.8"
+
+services:
+  seagate-hookup-search-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: seagate-hookup-search-api
+    restart: unless-stopped
+    network_mode: "host"
+    volumes:
+      # Mount the local folder into the container for live code syncing
+      - .:/usr/src/app
+      # Keep the container's node_modules separate from the host's node_modules
+      - /usr/src/app/node_modules
+      # Mount the SSL certificates from the host Linux machine so the Bun app can read them
+      - /etc/httpd/conf/ssl.crt:/etc/httpd/conf/ssl.crt:ro
+    environment:
+      - NODE_ENV=production
+      - PORT=9090
+      - ENABLE_TLS=true
+      - SSL_CERT_PATH=/etc/httpd/conf/ssl.crt/beltontechnology_com.crt
+      - SSL_KEY_PATH=/etc/httpd/conf/ssl.crt/beltontechnology_com.key
+      - SSL_CA_PATH=/etc/httpd/conf/ssl.crt/beltontechnology_com.ca-bundle
+      # - TZ=Asia/Bangkok (Optional: set timezone)
+    
+    # Resource limits (adjust based on your server)
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 512M
+
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # Health check targeting ElysiaJS port 9090
+    healthcheck:
+      test: [ "CMD", "bun", "run", "-e", "const url = process.env.ENABLE_TLS === 'true' ? 'https://localhost:9090' : 'http://localhost:9090'; fetch(url, { tls: { rejectUnauthorized: false } }).then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
