@@ -20,6 +20,68 @@
         </div>
       </div>
 
+      <!-- Staircase Drill-Down Guide (moved here from the main screen) -->
+      <div class="ft-guide-section">
+        <div class="ft-guide-header">
+          <span class="ft-guide-badge">🚀 แนะนำวิธีการใช้งาน</span>
+          <h3>การสืบค้นข้อมูลเชิงลึกแบบขั้นบันได (Staircase Drill-Down Search)</h3>
+          <p>ระบบสืบค้นอัจฉริยะที่จะช่วยให้ท่านสืบค้นประวัติชิ้นงาน เชื่อมโยงความสัมพันธ์ข้ามกระบวนการจากต้นน้ำสู่ปลายน้ำใน 4 ขั้นตอนง่ายๆ</p>
+        </div>
+
+        <div class="ft-guide-steps">
+          <!-- Step 1 -->
+          <div class="ft-guide-step-card">
+            <div class="ft-guide-icon" style="background: linear-gradient(135deg, #409eff, #337ecc)">
+              <span class="ft-guide-step-badge">1</span>
+              <span class="ft-guide-symbol">🏁</span>
+            </div>
+            <h4>ค้นหาข้อมูลตั้งต้น<br><span class="ft-guide-highlight">(Master Chain)</span></h4>
+            <p>เลือกตารางหลัก เลือกคอลัมน์ และกรอกค่าตั้งต้นที่มี (เช่น Serial No หรือ Lot) จากแผงควบคุมด้านซ้ายแล้วกด <strong>Search</strong> เพื่อสร้างบันไดขั้นแรก</p>
+          </div>
+
+          <div class="ft-guide-arrow">➔</div>
+
+          <!-- Step 2 -->
+          <div class="ft-guide-step-card">
+            <div class="ft-guide-icon" style="background: linear-gradient(135deg, #e6a23c, #b88230)">
+              <span class="ft-guide-step-badge">2</span>
+              <span class="ft-guide-symbol">🔍</span>
+            </div>
+            <h4>กรองข้อมูลเฉพาะส่วน<br><span class="ft-guide-highlight">(Local Filter)</span></h4>
+            <p>หากผลลัพธ์ในกล่องมีมากเกินไป พิมพ์กรองข้อมูลในกล่อง <em>"Filter in this box"</em> เพื่อกรองเอาเฉพาะข้อมูลตัวแทนที่ต้องการใช้สืบค้นต่อ</p>
+          </div>
+
+          <div class="ft-guide-arrow">➔</div>
+
+          <!-- Step 3 -->
+          <div class="ft-guide-step-card">
+            <div class="ft-guide-icon" style="background: linear-gradient(135deg, #67c23a, #529b2e)">
+              <span class="ft-guide-step-badge">3</span>
+              <span class="ft-guide-symbol">⛓️</span>
+            </div>
+            <h4>เชื่อมต่อแบบขั้นบันได<br><span class="ft-guide-highlight">(Pivot to Next Chain)</span></h4>
+            <p>คลิกปุ่มสีเขียว <strong>PIVOT TO →</strong> เพื่อก้าวลงบันไดขั้นย่อยถัดไป (Chain 1 → 2 → 3) ระบบจะนำเฉพาะข้อมูลที่กรองไว้ไปสืบค้นข้ามตารางให้ทันที</p>
+          </div>
+
+          <div class="ft-guide-arrow">➔</div>
+
+          <!-- Step 4 -->
+          <div class="ft-guide-step-card">
+            <div class="ft-guide-icon" style="background: linear-gradient(135deg, #909399, #606266)">
+              <span class="ft-guide-step-badge">4</span>
+              <span class="ft-guide-symbol">📊</span>
+            </div>
+            <h4>รวมข้อมูลแนวนอนอัตโนมัติ<br><span class="ft-guide-highlight">(Combined View)</span></h4>
+            <p>เมื่อเชื่อมโยงตั้งแต่ 2 ขั้นขึ้นไป ระบบจะรวมข้อมูลทุกขั้นตอนมาต่อเป็นตารางเดียวให้โดยอัตโนมัติ พร้อมส่งออกไปยังไฟล์ Excel</p>
+          </div>
+        </div>
+
+        <div class="ft-guide-footer">
+          <span class="ft-guide-info-icon">💡</span>
+          <span>ท่านสามารถสืบค้นย้อนกลับ (Backward) จากปลายน้ำกลับสู่ต้นน้ำ หรือสืบค้นไปข้างหน้า (Forward) ได้อย่างยืดหยุ่นไม่มีข้อจำกัด</span>
+        </div>
+      </div>
+
       <!-- Feature Grid: 4 Premium Categories -->
       <div class="ft-categories-grid">
         
@@ -386,6 +448,142 @@ defineEmits(['update:modelValue']);
   font-size: 0.9rem;
   color: #334155;
   line-height: 1.6;
+}
+
+/* ── Staircase Drill-Down Guide (ported from main screen) ── */
+.ft-guide-section {
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+}
+.ft-guide-header {
+  text-align: center;
+  margin-bottom: 24px;
+}
+.ft-guide-badge {
+  background: #ecf5ff;
+  color: #409eff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: 20px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: inline-block;
+  margin-bottom: 12px;
+}
+.ft-guide-header h3 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0 0 8px 0;
+}
+.ft-guide-header p {
+  font-size: 0.85rem;
+  color: #64748b;
+  margin: 0 auto;
+  max-width: 720px;
+  line-height: 1.5;
+}
+.ft-guide-steps {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  width: 100%;
+}
+.ft-guide-step-card {
+  flex: 1;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 18px 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.ft-guide-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 14px;
+  position: relative;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+}
+.ft-guide-step-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: #f56c6c;
+  color: white;
+  font-size: 0.66rem;
+  font-weight: 700;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid white;
+}
+.ft-guide-symbol {
+  font-size: 1.3rem;
+}
+.ft-guide-step-card h4 {
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0 0 8px 0;
+  line-height: 1.35;
+}
+.ft-guide-highlight {
+  color: #409eff;
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+.ft-guide-step-card p {
+  font-size: 0.74rem;
+  color: #64748b;
+  margin: 0;
+  line-height: 1.5;
+}
+.ft-guide-arrow {
+  display: flex;
+  align-items: center;
+  font-size: 1.4rem;
+  color: #cbd5e1;
+  font-weight: bold;
+  user-select: none;
+}
+.ft-guide-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  color: #475569;
+  margin-top: 20px;
+}
+.ft-guide-info-icon {
+  font-size: 1rem;
+}
+@media (max-width: 900px) {
+  .ft-guide-steps {
+    flex-direction: column;
+    gap: 12px;
+  }
+  .ft-guide-arrow {
+    transform: rotate(90deg);
+    justify-content: center;
+  }
 }
 .ft-categories-grid {
   display: grid;

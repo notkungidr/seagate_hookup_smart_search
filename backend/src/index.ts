@@ -343,10 +343,86 @@ const apiRoutes = new Elysia()
     }
   })
 
-  // ── GET /templates ──────────────────────────────────────────────────────
-  .get("/templates", async () => {
+  // ── GET /registry/users ───────────────────────────────────────────────────
+  .get("/registry/users", async ({ headers, set }) => {
     try {
-      const data = await templateService.getAll();
+      await verifyAdmin(headers);
+      const data = await registryService.getAllUsers();
+      return { success: true, data };
+    } catch (err: any) {
+      if (err.message.startsWith("401:")) {
+        set.status = 401;
+        return { success: false, message: err.message.substring(4) };
+      }
+      set.status = 400;
+      return { success: false, message: err.message };
+    }
+  })
+
+  // ── POST /registry/users ──────────────────────────────────────────────────
+  .post("/registry/users", async ({ body, headers, set }) => {
+    try {
+      await verifyAdmin(headers);
+      const data = await registryService.createUser(body);
+      return { success: true, data };
+    } catch (err: any) {
+      if (err.message.startsWith("401:")) {
+        set.status = 401;
+        return { success: false, message: err.message.substring(4) };
+      }
+      set.status = 400;
+      return { success: false, message: err.message };
+    }
+  }, {
+    body: t.Object({
+      en: t.String({ minLength: 1 }),
+      name: t.String({ minLength: 1 }),
+      permission: t.String({ minLength: 1 }),
+    })
+  })
+
+  // ── PUT /registry/users/:en ───────────────────────────────────────────────
+  .put("/registry/users/:en", async ({ params, body, headers, set }) => {
+    try {
+      await verifyAdmin(headers);
+      const data = await registryService.updateUser(params.en, body);
+      return { success: true, data };
+    } catch (err: any) {
+      if (err.message.startsWith("401:")) {
+        set.status = 401;
+        return { success: false, message: err.message.substring(4) };
+      }
+      set.status = 400;
+      return { success: false, message: err.message };
+    }
+  }, {
+    body: t.Object({
+      name: t.Optional(t.String()),
+      permission: t.Optional(t.String()),
+    })
+  })
+
+  // ── DELETE /registry/users/:en ────────────────────────────────────────────
+  .delete("/registry/users/:en", async ({ params, headers, set }) => {
+    try {
+      await verifyAdmin(headers);
+      await registryService.deleteUser(params.en);
+      return { success: true };
+    } catch (err: any) {
+      if (err.message.startsWith("401:")) {
+        set.status = 401;
+        return { success: false, message: err.message.substring(4) };
+      }
+      set.status = 400;
+      return { success: false, message: err.message };
+    }
+  })
+
+  // ── GET /templates ──────────────────────────────────────────────────────
+  .get("/templates", async ({ headers }) => {
+    try {
+      const viewer = await resolveViewer(headers);
+      const data = await templateService.getAll(viewer);
       return { success: true, data };
     } catch (err: any) {
       return { success: false, message: err.message };
@@ -354,33 +430,55 @@ const apiRoutes = new Elysia()
   })
 
   // ── POST /templates ─────────────────────────────────────────────────────
-  .post("/templates", async ({ body, set }) => {
+  .post("/templates", async ({ body, headers, set }) => {
     try {
-      const result = await templateService.save(body);
+      await verifyAdmin(headers);
+      const en = headers["x-user-en"];
+      const payload: any = body;
+      const result = await templateService.save({
+        ...payload,
+        createdBy: en,
+        visibility: payload.visibility === "restricted" ? "restricted" : (payload.visibility === "private" ? "private" : "public"),
+        allowedUsers: Array.isArray(payload.allowedUsers) ? payload.allowedUsers : [],
+      });
       return { success: true, data: result };
     } catch (err: any) {
+      if (err.message.startsWith("401:")) {
+        set.status = 401;
+        return { success: false, message: err.message.substring(4) };
+      }
       set.status = 400;
       return { success: false, message: err.message };
     }
   })
 
   // ── PUT /templates/:id ──────────────────────────────────────────────────
-  .put("/templates/:id", async ({ params, body, set }) => {
+  .put("/templates/:id", async ({ params, body, headers, set }) => {
     try {
-      const result = await templateService.update(params.id, body);
+      await verifyAdmin(headers);
+      const result = await templateService.update(params.id, body as any);
       return { success: true, data: result };
     } catch (err: any) {
+      if (err.message.startsWith("401:")) {
+        set.status = 401;
+        return { success: false, message: err.message.substring(4) };
+      }
       set.status = 400;
       return { success: false, message: err.message };
     }
   })
 
   // ── DELETE /templates/:id ───────────────────────────────────────────────
-  .delete("/templates/:id", async ({ params, set }) => {
+  .delete("/templates/:id", async ({ params, headers, set }) => {
     try {
+      await verifyAdmin(headers);
       await templateService.delete(params.id);
       return { success: true };
     } catch (err: any) {
+      if (err.message.startsWith("401:")) {
+        set.status = 401;
+        return { success: false, message: err.message.substring(4) };
+      }
       set.status = 400;
       return { success: false, message: err.message };
     }

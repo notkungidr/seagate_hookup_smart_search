@@ -25,6 +25,7 @@
       </el-select>
 
       <el-button
+        v-if="adminUser?.permission === 'admin'"
         id="btn-save-current-path"
         size="default"
         :disabled="!canSaveCurrent"
@@ -35,6 +36,7 @@
       </el-button>
 
       <el-button
+        v-if="adminUser?.permission === 'admin'"
         size="default"
         :disabled="!templates.length"
         @click="manageOpen = true"
@@ -216,6 +218,7 @@
 
       <div class="qt-master-actions">
         <el-button 
+          v-if="adminUser?.permission === 'admin'"
           id="btn-save-favorite-columns"
           size="default" 
           type="warning" 
@@ -260,6 +263,40 @@
             maxlength="200"
             show-word-limit
           />
+        </el-form-item>
+
+        <!-- 🔒 Visibility and Sharing Configuration -->
+        <el-form-item label="🔒 การแชร์ / สิทธิ์การเข้าถึง (Visibility)">
+          <el-select v-model="draft.visibility" style="width: 100%;">
+            <el-option label="🌍 สาธารณะ (Public - เห็นและใช้งานได้ทุกคน)" value="public" />
+            <el-option label="🔒 ส่วนตัว (Private - เห็นเฉพาะคุณ)" value="private" />
+            <el-option label="👤 จำกัดบุคคล (Restricted - เฉพาะพนักงานที่กำหนด)" value="restricted" />
+          </el-select>
+        </el-form-item>
+
+        <!-- Allowed Users input when visibility is restricted -->
+        <el-form-item v-if="draft.visibility === 'restricted'" label="👤 พนักงานที่แชร์สิทธิ์ให้ (Allowed ENs)">
+          <el-select
+            v-model="draft.allowedUsers"
+            multiple
+            filterable
+            remote
+            allow-create
+            default-first-option
+            reserve-keyword
+            placeholder="พิมพ์ชื่อหรือรหัสพนักงานเพื่อค้นหา..."
+            :remote-method="remoteSearchEmployees"
+            :loading="searchLoading"
+            style="width: 100%;"
+          >
+            <el-option
+              v-for="item in employeeSuggestions"
+              :key="item.en"
+              :label="item.display"
+              :value="item.en"
+            />
+          </el-select>
+          <div style="font-size: 11px; color: #909399; margin-top: 6px;">พิมพ์ชื่อหรือรหัสพนักงานเพื่อดึงข้อมูลตรงจากระบบฐานข้อมูล</div>
         </el-form-item>
         <el-form-item label="Interactive Flow Architect">
           <div class="fa-flow-container">
@@ -384,8 +421,8 @@
 
 <script setup>
 import { ref, computed, watch, markRaw } from 'vue';
-import { ElMessage } from 'element-plus';
-import { Search, VideoPlay, Plus, Setting, Edit, Delete, Close } from '@element-plus/icons-vue';
+import { ElMessage, ElMessageBox } from 'element-plus';
+import { VideoPlay, Plus, Setting, Edit, Delete, Close } from '@element-plus/icons-vue';
 import { useQueryTemplates, runTemplateChain, recalculateHops } from '../composables/useQueryTemplates';
 
 const props = defineProps({
@@ -395,9 +432,10 @@ const props = defineProps({
   searchForm:   { type: Object, required: true },
   nextUid:      { type: Function, required: true },
   visibleCombinedCols: { type: Array, required: true },
+  adminUser:    { type: Object, default: null }
 });
 
-const emit = defineEmits(['chain-started', 'chain-finished', 'update:chainSteps']);
+const emit = defineEmits(['chain-started', 'chain-finished', 'update:chainSteps', 'open-save-api-dialog']);
 
 const {
   templates,
@@ -623,7 +661,56 @@ async function onRun(bypassLimit = false) {
 // ── Save / Edit Modal ──────────────────────────────────────────────────────
 const saveOpen   = ref(false);
 const editingId  = ref('');
-const draft      = ref({ name: '', description: '', rootTable: '', rootColumn: '', rootOperator: 'like', rootConditions: [], hops: [], stepsChain: [], favoriteColumns: [] });
+const draft      = ref({ name: '', description: '', rootTable: '', rootColumn: '', rootOperator: 'like', rootConditions: [], hops: [], stepsChain: [], favoriteColumns: [], visibility: 'public', allowedUsers: [] });
+
+// Real-time Employee Autocomplete
+const searchLoading = ref(false);
+const employeeSuggestions = ref([]);
+
+function authHeaders(extra = {}) {
+  const h = { ...extra };
+  const en = props.adminUser?.en || '';
+  if (en) h['x-user-en'] = String(en);
+  return h;
+}
+
+async function remoteSearchEmployees(query) {
+  if (!query || query.trim() === '') {
+    employeeSuggestions.value = [];
+    return;
+  }
+
+  searchLoading.value = true;
+  try {
+    const cleanQuery = query.trim();
+    const isNumeric = /^\d+$/.test(cleanQuery);
+    const paramKey = isNumeric ? 'en' : 'eName';
+    
+    const res = await fetch(`${props.apiBase}/api/v1/trace/api-hr-autocompleted?${paramKey}=${encodeURIComponent(cleanQuery)}`, {
+      headers: authHeaders()
+    });
+    const result = await res.json();
+    if (result && Array.isArray(result.data)) {
+      employeeSuggestions.value = result.data.map(item => {
+        const en = item.en || item.EN || '';
+        const name = item.e_name || item.eName || item.E_NAME || '';
+        const dept = item.dept || item.DEPT || item.section || '';
+        return {
+          en: String(en),
+          name: String(name),
+          display: `${en} - ${name} (${dept})`
+        };
+      });
+    } else {
+      employeeSuggestions.value = [];
+    }
+  } catch (err) {
+    console.error('Employee autocomplete fetch failed:', err);
+    employeeSuggestions.value = [];
+  } finally {
+    searchLoading.value = false;
+  }
+}
 
 function openSaveModal() {
   const captured = buildTemplateFromCurrentChain({
@@ -637,7 +724,8 @@ function openSaveModal() {
     return;
   }
   editingId.value = '';
-  draft.value = { name: '', description: '', ...captured };
+  draft.value = { name: '', description: '', visibility: 'public', allowedUsers: [], ...captured };
+  employeeSuggestions.value = [];
   saveOpen.value = true;
 }
 function openRenameModal(tpl) {
@@ -649,7 +737,14 @@ function openRenameModal(tpl) {
     hops: JSON.parse(JSON.stringify(tpl.hops || [])),
     stepsChain: tpl.stepsChain.slice(),
     favoriteColumns: tpl.favoriteColumns || [],
+    visibility: tpl.visibility || 'public',
+    allowedUsers: Array.isArray(tpl.allowedUsers) ? [...tpl.allowedUsers] : [],
   };
+  employeeSuggestions.value = (tpl.allowedUsers || []).map(en => ({
+    en: String(en),
+    name: String(en),
+    display: `${en}`
+  }));
   saveOpen.value = true;
 }
 async function commitSave() {
@@ -661,6 +756,8 @@ async function commitSave() {
       hops: draft.value.hops,
       stepsChain: draft.value.stepsChain,
       favoriteColumns: draft.value.favoriteColumns,
+      visibility: draft.value.visibility || 'public',
+      allowedUsers: draft.value.allowedUsers || [],
     });
     if (updated) {
       ElMessage.success('อัปเดต Template เรียบร้อย');
@@ -760,12 +857,20 @@ function applyQuickPasteValues(lines, filename) {
   return false;
 }
 
+// Programmatically select a template (used by the Query Templates launchpad
+// cards in TraceabilityFlow so a card click loads it into this panel's
+// Master Chain Conditions editor instead of running immediately).
+function selectTemplate(id) {
+  selectedId.value = id;
+}
+
 defineExpose({
   selectedTemplate,
   selectedStartStepIdx,
   templateConditions,
   onRun,
   applyQuickPasteValues,
+  selectTemplate,
 });
 </script>
 

@@ -38,6 +38,8 @@ async function clickSelect(page, selector) {
   await page.waitForTimeout(300);
 }
 
+// loginAsAdmin helper removed, handled in beforeEach
+
 test.describe('Smart Pivot Search - E2E Testing Suite', () => {
 
   test.beforeEach(async ({ context, page }) => {
@@ -54,6 +56,18 @@ test.describe('Smart Pivot Search - E2E Testing Suite', () => {
     });
     // 4. รีโหลดหน้าเว็บเพื่อให้แอปพลิเคชันโหลด Config จาก localStorage ที่จัดเตรียมไว้
     await page.reload();
+
+    // 5. ล็อกอินผ่าน LoginPanel เต็มบาน
+    const usernameInput = page.locator('#input-login-username');
+    await expect(usernameInput).toBeVisible();
+    await usernameInput.fill('0001');
+    await page.locator('#btn-submit-login').click();
+    // รอให้ล็อกอินสำเร็จ (แถบ Admin Pill ปรากฏ) — ใช้ timeout นานเพื่อรองรับ backend startup delay
+    await expect(page.locator('.admin-pill-indicator')).toBeVisible({ timeout: 15000 });
+
+    // 6. ปิดหน้าจอ Registry Manager ที่เปิดขึ้นมาอัตโนมัติสำหรับ Admin
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(600);
   });
 
   // ---------------------------------------------------------------------------
@@ -123,6 +137,8 @@ test.describe('Smart Pivot Search - E2E Testing Suite', () => {
   // 🎯 Test Case 3 & 4: ระบบเทมเพลต (Query Templates Panel)
   // ---------------------------------------------------------------------------
   test('TC3-4: Should save path as template and replay template execution', async ({ page }) => {
+    // 0. (Already logged in as Admin via beforeEach)
+
     // 1. ค้นหาด่วนเพื่อให้มี chain steps ค้าง
     await clickSelect(page, '#select-master-table');
     await getSelectOption(page, 'Scan 1 (Unit Entry)').click();
@@ -167,25 +183,26 @@ test.describe('Smart Pivot Search - E2E Testing Suite', () => {
   // ---------------------------------------------------------------------------
   // 🎯 Test Case 5: ระบบจัดการผู้ใช้และสิทธิ์ Admin (Admin Authentication)
   // ---------------------------------------------------------------------------
-  test('TC5: Should allow developer bypass using Admin Portal with code 0001', async ({ page }) => {
-    // คลิกปุ่ม Admin Access ที่ Header
-    const adminBtn = page.locator('#btn-admin-access');
-    await adminBtn.click();
+  test('TC5: Should allow developer bypass using LoginPanel with code 0001', async ({ page }) => {
+    // 1. กดปุ่ม Logout เพื่อกลับมาหน้าจอ LoginPanel
+    const adminPill = page.locator('.admin-pill-indicator');
+    await expect(adminPill).toBeVisible();
+    await adminPill.locator('.logout-link-btn').click();
 
-    // Dialog ล็อกอินความปลอดภัยสูงปรากฏขึ้น
-    const loginDialog = page.locator('.admin-login-dialog');
-    await expect(loginDialog).toBeVisible();
+    // 2. หน้าจอล็อกอิน LoginPanel ปรากฏขึ้นเต็มบาน
+    const usernameInput = page.locator('#input-login-username');
+    await expect(usernameInput).toBeVisible();
 
-    // ป้อนรหัสทดสอบเพื่อทำการ Bypass (รหัส EN 0001)
-    await loginDialog.locator('#input-admin-username').fill('0001');
-    
-    // กดปุ่มยืนยันเข้าสู่ระบบ
-    await loginDialog.locator('#btn-admin-login').click();
+    // 3. ป้อนรหัสทดสอบเพื่อทำการ Bypass (รหัส EN 0001)
+    await usernameInput.fill('0001');
 
-    // สิทธิ์แอดมินจะต้องโหลดสำเร็จ หน้าต่างล็อกอินจะปิดไป
-    await expect(loginDialog).not.toBeVisible();
-    
-    // คอนเฟิร์มแถบชื่อใน Header แสดงชื่อ Admin
+    // 4. กดปุ่มยืนยันเข้าสู่ระบบ
+    await page.locator('#btn-submit-login').click();
+
+    // 5. ล็อกอินเสร็จสิ้น หน้าต่างล็อกอินจะหายไป
+    await expect(usernameInput).not.toBeVisible();
+
+    // 6. คอนเฟิร์มแถบชื่อใน Header แสดงชื่อ Admin
     await expect(page.locator('.admin-name')).toBeVisible();
   });
 
@@ -294,6 +311,8 @@ test.describe('Smart Pivot Search - E2E Testing Suite', () => {
   // 🎯 Test Case 14: ระบบบันทึกคอลัมน์โปรด (Favorite Columns per Template - Idea 5.2)
   // ---------------------------------------------------------------------------
   test('TC14: Should save favorite visible columns and apply them automatically when template is replayed', async ({ page }) => {
+    // 0. (Already logged in as Admin via beforeEach)
+
     // 1. ค้นหาด่วนเพื่อให้มี chain steps และโหลดตารางหลัก
     await clickSelect(page, '#select-master-table');
     await getSelectOption(page, 'Scan 1 (Unit Entry)').click();

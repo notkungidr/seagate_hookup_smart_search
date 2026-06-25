@@ -1,4 +1,4 @@
-import { dbSeagateDev } from "../db/client";
+import { dbSeagateDev, getRawPool } from "../db/client";
 import { queryTemplates } from "../db/schema";
 import { eq } from "drizzle-orm";
 import { sql } from "drizzle-orm";
@@ -37,17 +37,99 @@ export class TemplateService {
       } catch (colErr) {
         // Ignored if column already exists
       }
+
+      // Self-healing migration: Add 'created_by' and 'visibility' columns
+      try {
+        await dbSeagateDev.execute(sql`
+          ALTER TABLE query_templates ADD COLUMN created_by VARCHAR(50) DEFAULT ''
+        `);
+        console.log("✅ MySQL database (SeagateDev): added 'created_by' column to 'query_templates' table.");
+      } catch (e: any) {
+        if (!/duplicate column|Duplicate column/i.test(e?.message || "")) {
+          console.warn("⚠️ ALTER query_templates ADD created_by failed:", e?.message || e);
+        }
+      }
+
+      try {
+        await dbSeagateDev.execute(sql`
+          ALTER TABLE query_templates ADD COLUMN visibility VARCHAR(50) DEFAULT 'public'
+        `);
+        console.log("✅ MySQL database (SeagateDev): added 'visibility' column to 'query_templates' table.");
+      } catch (e: any) {
+        if (!/duplicate column|Duplicate column/i.test(e?.message || "")) {
+          console.warn("⚠️ ALTER query_templates ADD visibility failed:", e?.message || e);
+        }
+      }
+
+      // Check/create template_permissions table
+      await dbSeagateDev.execute(sql`
+        CREATE TABLE IF NOT EXISTS template_permissions (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          template_id VARCHAR(100) NOT NULL,
+          user_en VARCHAR(50) NOT NULL,
+          assigned_at VARCHAR(50) NOT NULL,
+          INDEX idx_template_id (template_id),
+          INDEX idx_user_en (user_en)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8
+      `);
+      console.log("✅ MySQL database (SeagateDev): checked/created 'template_permissions' table.");
     } catch (err) {
       console.error("❌ Failed to verify/create 'query_templates' table on SeagateDev:", err);
     }
   }
 
+  private async fetchAllowedUsers(templateId: string): Promise<string[]> {
+    const pool = getRawPool("SeagateDev");
+    try {
+      const [rows] = await pool.execute(
+        "SELECT user_en FROM template_permissions WHERE template_id = ?",
+        [templateId]
+      ) as [Array<{ user_en: string }>, any];
+      return rows.map(r => r.user_en);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  private async syncAllowedUsers(templateId: string, allowedUsers: string[]): Promise<void> {
+    const pool = getRawPool("SeagateDev");
+    await pool.execute("DELETE FROM template_permissions WHERE template_id = ?", [templateId]);
+    const now = new Date().toISOString();
+    const unique = [...new Set((allowedUsers || []).map(e => String(e).trim()).filter(Boolean))];
+    for (const en of unique) {
+      await pool.execute(
+        "INSERT INTO template_permissions (template_id, user_en, assigned_at) VALUES (?, ?, ?)",
+        [templateId, en, now]
+      );
+    }
+  }
+
   /**
    * Fetch all templates, parsing stored JSON arrays from TEXT fields.
+   * Scopes results based on viewer parameter.
    */
-  async getAll() {
+  async getAll(viewer?: { en: string; permission: string } | null) {
     const rows = await dbSeagateDev.select().from(queryTemplates);
-    return rows.map(r => ({
+
+    // Bulk-load permissions to avoid N+1
+    const pool = getRawPool("SeagateDev");
+    let permRows: Array<{ template_id: string; user_en: string }> = [];
+    try {
+      const [res] = await pool.execute(
+        "SELECT template_id, user_en FROM template_permissions"
+      ) as [Array<{ template_id: string; user_en: string }>, any];
+      permRows = res;
+    } catch (e) {
+      // Swallowed in case table doesn't exist yet
+    }
+
+    const permMap = new Map<string, string[]>();
+    permRows.forEach(p => {
+      if (!permMap.has(p.template_id)) permMap.set(p.template_id, []);
+      permMap.get(p.template_id)!.push(p.user_en);
+    });
+
+    const all = rows.map(r => ({
       id: r.id,
       name: r.name,
       description: r.description || "",
@@ -60,7 +142,24 @@ export class TemplateService {
       favoriteColumns: r.favoriteColumns ? JSON.parse(r.favoriteColumns) : [],
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
+      createdBy: r.createdBy || "",
+      visibility: r.visibility || "public",
+      allowedUsers: permMap.get(r.id) || [],
     }));
+
+    if (viewer && viewer.permission === "admin") return all;
+
+    if (!viewer) {
+      // Guest: see ONLY public templates
+      return all.filter(tpl => tpl.visibility === "public");
+    }
+
+    const en = String(viewer.en || "").trim();
+    return all.filter(tpl =>
+      tpl.visibility === "public" ||
+      tpl.createdBy === en ||
+      (tpl.allowedUsers || []).includes(en)
+    );
   }
 
   /**
@@ -88,6 +187,8 @@ export class TemplateService {
       favoriteColumns: JSON.stringify(tpl.favoriteColumns || []),
       createdAt: tpl.createdAt,
       updatedAt: tpl.updatedAt,
+      createdBy: tpl.createdBy || "",
+      visibility: tpl.visibility || "public",
     };
 
     if (existing.length > 0) {
@@ -95,6 +196,8 @@ export class TemplateService {
     } else {
       await dbSeagateDev.insert(queryTemplates).values(record);
     }
+    
+    await this.syncAllowedUsers(tpl.id, tpl.allowedUsers || []);
     return tpl;
   }
 
@@ -132,6 +235,8 @@ export class TemplateService {
       favoriteColumns: patch.favoriteColumns !== undefined ? patch.favoriteColumns : parsedFavoriteColumns,
       createdAt: current.createdAt,
       updatedAt: new Date().toISOString(),
+      createdBy: patch.createdBy !== undefined ? patch.createdBy : (current.createdBy || ""),
+      visibility: patch.visibility !== undefined ? patch.visibility : (current.visibility || "public"),
     };
 
     // Automatically recalculate stepsChain if root or hops are updated
@@ -152,8 +257,14 @@ export class TemplateService {
         stepsChain: JSON.stringify(updated.stepsChain),
         favoriteColumns: JSON.stringify(updated.favoriteColumns),
         updatedAt: updated.updatedAt,
+        createdBy: updated.createdBy,
+        visibility: updated.visibility,
       })
       .where(eq(queryTemplates.id, id));
+
+    if (patch.allowedUsers !== undefined) {
+      await this.syncAllowedUsers(id, patch.allowedUsers);
+    }
 
     return updated;
   }
@@ -163,6 +274,14 @@ export class TemplateService {
    */
   async delete(id: string) {
     await dbSeagateDev.delete(queryTemplates).where(eq(queryTemplates.id, id));
+    
+    // Clean up template permissions
+    const pool = getRawPool("SeagateDev");
+    try {
+      await pool.execute("DELETE FROM template_permissions WHERE template_id = ?", [id]);
+    } catch (e) {
+      // Swallowed
+    }
     return true;
   }
 }

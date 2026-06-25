@@ -1,8 +1,14 @@
 <template>
   <div class="pivot-app">
+    <LoginPanel
+      v-if="!adminUser"
+      :api-base="API_BASE"
+      @success="onLoginSuccess"
+    />
 
-    <!-- ══ HEADER ══════════════════════════════════════════════════════════ -->
-    <header class="app-header">
+    <template v-else>
+      <!-- ══ HEADER ══════════════════════════════════════════════════════════ -->
+      <header class="app-header">
       <div class="header-inner">
         <div class="header-brand">
           <span class="header-icon">🔗</span>
@@ -36,11 +42,14 @@
                 <el-dropdown-item command="catalog">
                   🚀 สารบัญฟีเจอร์ระบบ (Feature Catalog)
                 </el-dropdown-item>
-                <el-dropdown-item command="api">
+                <el-dropdown-item v-if="adminUser?.permission === 'admin'" command="api">
                   🔌 จัดการ API Endpoints (API Manager)
                 </el-dropdown-item>
                 <el-dropdown-item v-if="adminUser?.permission === 'admin'" command="registry">
                   🗂️ จัดการ Chains & Tables (Registry Manager)
+                </el-dropdown-item>
+                <el-dropdown-item v-if="adminUser?.permission === 'admin'" command="users">
+                  👤 จัดการสิทธิ์พนักงาน (User Manager)
                 </el-dropdown-item>
                 <el-dropdown-item divided command="philosophy">
                   💡 ทำไมต้อง Drill-Down? (Philosophy)
@@ -49,17 +58,13 @@
             </template>
           </el-dropdown>
 
-          <!-- Admin Status Indicator Pill -->
-          <div v-if="adminUser" class="admin-pill-indicator" style="margin-right: 8px;">
+          <!-- Admin/Viewer Status Indicator Pill -->
+          <div :class="adminUser.permission === 'admin' ? 'admin-pill-indicator' : 'viewer-pill-indicator'" style="margin-right: 8px;">
             <span class="user-avatar">👤</span>
-            <span class="admin-name">{{ adminUser.name }}</span>
+            <span class="admin-name">{{ adminUser.name }} ({{ adminUser.permission === 'admin' ? 'Admin' : 'Viewer' }})</span>
             <el-button type="danger" size="small" link class="logout-link-btn" @click="handleAdminLogout">
               [🚪 Logout]
             </el-button>
-          </div>
-          <div v-else id="btn-admin-access" class="guest-pill-indicator" @click="adminLoginVisible = true" style="margin-right: 8px;">
-            <span class="lock-ico">🔒</span>
-            <span>Admin Access</span>
           </div>
 
           <!-- Active Steps tag (shows only when chain active) -->
@@ -79,6 +84,7 @@
               📥 Export All
             </el-button>
             <el-button
+              v-if="adminUser?.permission === 'admin'"
               size="small"
               @click="resetAll"
               type="danger"
@@ -86,6 +92,16 @@
               :disabled="loading"
             >
               Reset All
+            </el-button>
+            <el-button
+              v-else
+              size="small"
+              @click="resetAll"
+              type="danger"
+              plain
+              :disabled="loading"
+            >
+              🔙 ย้อนกลับหน้าหลัก
             </el-button>
           </el-button-group>
         </div>
@@ -95,7 +111,10 @@
     <div class="app-body">
 
       <!-- ══ PANEL 1: SEARCH CONTROLS ════════════════════════════════════ -->
-      <el-card class="search-panel" shadow="always">
+      <!-- Visible to admin AND viewer. The manual-search controls below
+           (table picker, conditions, quick-paste, history) stay admin-only;
+           viewers see only the Query Templates picker + Master Chain editor. -->
+      <el-card v-if="adminUser" class="search-panel" shadow="always">
         <template #header>
           <div class="panel-header">
             <span>🔍 Search</span>
@@ -112,15 +131,19 @@
             :search-form="searchForm"
             :next-uid="nextUid"
             :visible-combined-cols="visibleCombinedCols"
+            :admin-user="adminUser"
             @update:chain-steps="onTemplateChainUpdate"
             @chain-finished="onTemplateChainFinished"
             @open-save-api-dialog="openSaveApiDialog"
             style="margin-bottom: 12px"
           />
 
-          <!-- ── Quick Paste Box (Task 1.3) ── -->
-          <div 
-            class="quick-paste-box" 
+          <!-- ── Quick Paste Box (Task 1.3) ──
+               เปิดให้ทั้ง admin และ viewer ใช้ เพื่อนำเข้า/วางรหัสจำนวนมาก
+               แล้วยัดเข้าเป็นเงื่อนไข IN ของ Template ที่เลือกไว้ได้ทันที -->
+          <div
+            v-if="adminUser"
+            class="quick-paste-box"
             :class="{ 'is-dragging': isDraggingFile }"
             style="margin-bottom: 16px; position: relative;"
             @dragover.prevent="handleDragOver"
@@ -143,7 +166,7 @@
                 <el-button id="btn-quick-paste-upload" type="primary" link size="small" @click="triggerFileInput" style="font-weight: 600; font-size: 11px;">
                   📂 นำเข้าไฟล์
                 </el-button>
-                <el-button id="btn-quick-paste-config" type="primary" link size="small" @click="quickPasteRulesDialogVisible = true" style="font-weight: 600; font-size: 11px;">
+                <el-button v-if="adminUser?.permission === 'admin'" id="btn-quick-paste-config" type="primary" link size="small" @click="quickPasteRulesDialogVisible = true" style="font-weight: 600; font-size: 11px;">
                   ⚙️ ตั้งค่า Rules
                 </el-button>
               </div>
@@ -230,7 +253,7 @@
             </div>
           </div>
 
-          <el-form-item label="ตารางหลัก (Table)">
+          <el-form-item v-if="!adminUser || adminUser.permission === 'admin'" label="ตารางหลัก (Table)">
             <el-select
               id="select-master-table"
               v-model="searchForm.table"
@@ -255,7 +278,7 @@
           </el-form-item>
 
           <!-- เงื่อนไขการค้นหาแบบหลายฟิลด์ -->
-          <div v-if="searchForm.table" class="conditions-container">
+          <div v-if="(!adminUser || adminUser.permission === 'admin') && searchForm.table" class="conditions-container">
             <div class="conditions-title-row">
               <span class="conditions-title">🎯 เงื่อนไขการค้นหา (AND)</span>
             </div>
@@ -433,6 +456,7 @@
           </div>
 
           <el-button
+            v-if="!adminUser || adminUser.permission === 'admin'"
             id="btn-main-search"
             type="primary"
             :loading="loading"
@@ -446,7 +470,7 @@
         </el-form>
 
         <!-- ══ RECENT SEARCHES (Search History) ══════════════════════════════ -->
-        <div class="search-history-panel" style="margin-top: 16px;">
+        <div v-if="!adminUser || adminUser.permission === 'admin'" class="search-history-panel" style="margin-top: 16px;">
           <div id="recent-searches-header" class="history-panel-header" @click="isHistoryOpen = !isHistoryOpen">
             <span class="history-title">🕒 ประวัติค้นหาล่าสุด (Recent Searches)</span>
             <el-icon class="history-collapse-arrow" :class="{ 'is-active': isHistoryOpen }">
@@ -609,11 +633,12 @@
                   </template>
 
                   <!-- Stepper Node Card -->
-                  <div 
+                  <div
                     class="stepper-node"
                     :class="{
                       'stepper-node--active': step.originalIdx === activeStepIndex,
-                      'stepper-node--empty': step.total === 0,
+                      'stepper-node--empty': step.total === 0 && !step._chainLoading,
+                      'stepper-node--loading': step._chainLoading,
                       'stepper-node--branch': step.parentIdx !== null && step.parentIdx !== step.originalIdx - 1
                     }"
                     :style="getStepperNodeStyle(step.originalIdx, step)"
@@ -621,7 +646,8 @@
                   >
                     <!-- Badge for status representation -->
                     <div class="node-badge">
-                      {{ step.total === 0 ? '🔴' : '🟢' }}
+                      <el-icon v-if="step._chainLoading" class="is-loading" :size="13"><Loading /></el-icon>
+                      <template v-else>{{ step.total === 0 ? '🔴' : '🟢' }}</template>
                     </div>
                     
                     <div class="node-content">
@@ -637,7 +663,10 @@
                         <span class="node-label" :title="step.tableLabel">{{ step.tableLabel }}</span>
                       </div>
                       <div class="node-details">
-                        <span v-if="step.total === 0" class="node-status-text error">Not Found</span>
+                        <span v-if="step._chainLoading" class="node-status-text loading">
+                          <el-icon class="is-loading" :size="12"><Loading /></el-icon> กำลังประมวลผล...
+                        </span>
+                        <span v-else-if="step.total === 0" class="node-status-text error">Not Found</span>
                         <span v-else class="node-status-text success" :class="{ 'rows--filtered': getFilteredRows(step.originalIdx).length !== step.total }">
                           {{ getFilteredRows(step.originalIdx).length.toLocaleString() }} <span style="opacity: 0.6">/ {{ step.total.toLocaleString() }} rows</span>
                         </span>
@@ -808,7 +837,7 @@
 
               <!-- 💾 Save as API Endpoint Button -->
               <el-button
-                v-if="chainSteps.length >= 1"
+                v-if="adminUser?.permission === 'admin' && chainSteps.length >= 1"
                 size="small"
                 type="success"
                 @click="openSaveApiDialog"
@@ -1128,69 +1157,57 @@
         </div>
       </div>
 
-      <!-- Empty State & Staircase Drill-Down Guide -->
+      <!-- Empty State & Query Templates Launchpad -->
       <div class="empty-state" v-else>
         <div class="staircase-guide-container">
-          <div class="staircase-guide-header">
-            <span class="guide-badge">🚀 แนะนำวิธีการใช้งาน</span>
-            <h2>การสืบค้นข้อมูลเชิงลึกแบบขั้นบันได (Staircase Drill-Down Search)</h2>
-            <p>ระบบสืบค้นอัจฉริยะที่จะช่วยให้ท่านสืบค้นประวัติชิ้นงาน เชื่อมโยงความสัมพันธ์ข้ามกระบวนการจากต้นน้ำสู่ปลายน้ำใน 4 ขั้นตอนง่ายๆ</p>
-          </div>
-
-          <div class="staircase-steps">
-            <!-- Step 1 -->
-            <div class="staircase-step-card">
-              <div class="staircase-icon-wrapper" style="background: linear-gradient(135deg, #409eff, #337ecc)">
-                <span class="step-badge">1</span>
-                <span class="step-icon-symbol">🏁</span>
-              </div>
-              <h3>ค้นหาข้อมูลตั้งต้น<br><span class="highlight">(Master Chain)</span></h3>
-              <p>เลือกตารางหลัก เลือกคอลัมน์ และกรอกค่าตั้งต้นที่มี (เช่น Serial No หรือ Lot) จากแผงควบคุมด้านซ้ายแล้วกด <strong>Search</strong> เพื่อสร้างบันไดขั้นแรก</p>
+          <!-- Query Templates Grid Section -->
+          <div class="template-shortcuts-section" style="width: 100%;">
+            <div class="section-title-row" style="text-align: center; margin-bottom: 20px;">
+              <span class="shortcuts-badge">📊 เทมเพลตสืบค้นข้อมูล (Query Templates)</span>
+              <h2 style="font-size: 1.3rem; font-weight: 700; margin: 8px 0 4px 0; color: var(--text-primary);">โปรดเลือกเทมเพลตการสืบค้นที่ต้องการเรียกใช้</h2>
+              <p style="font-size: 0.82rem; color: var(--text-secondary);">เทมเพลตที่ได้รับการแชร์สิทธิ์เข้าใช้งานสำหรับบัญชีของท่าน (คลิกเพื่อเริ่มค้นหาทันที)</p>
             </div>
 
-            <!-- Arrow 1 -->
-            <div class="staircase-arrow">➔</div>
-
-            <!-- Step 2 -->
-            <div class="staircase-step-card">
-              <div class="staircase-icon-wrapper" style="background: linear-gradient(135deg, #e6a23c, #b88230)">
-                <span class="step-badge">2</span>
-                <span class="step-icon-symbol">🔍</span>
-              </div>
-              <h3>กรองข้อมูลเฉพาะส่วน<br><span class="highlight">(Local Filter)</span></h3>
-              <p>หากผลลัพธ์ในกล่องมีมากเกินไป พิมพ์กรองข้อมูลในกล่อง <em>"Filter in this box"</em> เพื่อกรองเอาเฉพาะข้อมูลตัวแทนที่ต้องการใช้สืบค้นต่อ</p>
+            <!-- Loading Templates -->
+            <div v-if="loadingTemplates" style="text-align: center; padding: 20px 0;">
+              <el-icon class="is-loading" size="24" color="#409eff"><Loading /></el-icon>
+              <p style="font-size: 13px; color: #909399; margin-top: 8px;">กำลังโหลดรายชื่อเทมเพลต...</p>
             </div>
 
-            <!-- Arrow 2 -->
-            <div class="staircase-arrow">➔</div>
-
-            <!-- Step 3 -->
-            <div class="staircase-step-card">
-              <div class="staircase-icon-wrapper" style="background: linear-gradient(135deg, #67c23a, #529b2e)">
-                <span class="step-badge">3</span>
-                <span class="step-icon-symbol">⛓️</span>
-              </div>
-              <h3>เชื่อมต่อแบบขั้นบันได<br><span class="highlight">(Pivot to Next Chain)</span></h3>
-              <p>คลิกปุ่มสีเขียว <strong>PIVOT TO →</strong> เพื่อก้าวลงบันไดขั้นย่อยถัดไป (Chain 1 → 2 → 3) ระบบจะนำเฉพาะข้อมูลที่กรองไว้ไปสืบค้นข้ามตารางให้ทันที</p>
+            <!-- Templates Empty -->
+            <div v-else-if="templates.length === 0" style="text-align: center; padding: 30px; background: rgba(0,0,0,0.01); border-radius: 12px; border: 1px dashed var(--border-color);">
+              <span style="font-size: 24px;">📭</span>
+              <p style="font-size: 13px; color: #909399; margin-top: 8px; font-weight: 500;">ยังไม่มีเทมเพลตที่ได้รับการแชร์สิทธิ์สำหรับท่านในขณะนี้</p>
             </div>
 
-            <!-- Arrow 3 -->
-            <div class="staircase-arrow">➔</div>
-
-            <!-- Step 4 -->
-            <div class="staircase-step-card">
-              <div class="staircase-icon-wrapper" style="background: linear-gradient(135deg, #909399, #606266)">
-                <span class="step-badge">4</span>
-                <span class="step-icon-symbol">📊</span>
+            <!-- Template Grid -->
+            <div v-else class="template-grid">
+              <div
+                v-for="tpl in templates"
+                :key="tpl.id"
+                class="template-card"
+                @click="handleRunTemplate(tpl)"
+              >
+                <div class="template-card-header">
+                  <span class="template-icon">📊</span>
+                  <div class="template-title-wrap">
+                    <h3 class="template-title">{{ tpl.name }}</h3>
+                    <span class="template-creator" v-if="tpl.createdBy">โดย EN: {{ tpl.createdBy }}</span>
+                  </div>
+                </div>
+                <p class="template-desc">{{ tpl.description || 'ไม่มีคำอธิบายสำหรับเทมเพลตนี้' }}</p>
+                <div class="template-chain-flow">
+                  <div class="chain-step-node" v-for="(step, sIdx) in tpl.stepsChain" :key="sIdx">
+                    <span class="step-label">{{ getTableNameFromMeta(step) }}</span>
+                    <span class="step-arrow" v-if="sIdx < tpl.stepsChain.length - 1">➔</span>
+                  </div>
+                </div>
+                <div class="template-card-action">
+                  <span>🚀 เรียกใช้งานสืบค้น (Run Template)</span>
+                  <span class="action-arrow">➔</span>
+                </div>
               </div>
-              <h3>รวมข้อมูลแนวนอนอัตโนมัติ<br><span class="highlight">(Combined View)</span></h3>
-              <p>เมื่อเชื่อมโยงตั้งแต่ 2 ขั้นขึ้นไป ระบบจะรวมข้อมูลทุกขั้นตอนมาต่อเป็นตารางเดียวให้โดยอัตโนมัติ พร้อมส่งออกไปยังไฟล์ Excel</p>
             </div>
-          </div>
-
-          <div class="staircase-footer">
-            <span class="info-icon">💡</span>
-            <span>ท่านสามารถสืบค้นย้อนกลับ (Backward) จากปลายน้ำกลับสู่ต้นน้ำ หรือสืบค้นไปข้างหน้า (Forward) ได้อย่างยืดหยุ่นไม่มีข้อจำกัด</span>
           </div>
         </div>
       </div>
@@ -1227,7 +1244,8 @@
     <FeatureGuideDialog v-model="featureGuideVisible" />
     <ApiManagerDialog v-model="apiManagerVisible" :api-base="API_BASE" />
     <RegistryManagerDialog v-model="registryManagerVisible" :api-base="API_BASE" @saved="reloadTablesSchema" />
-    <AdminLoginDialog v-model="adminLoginVisible" :api-base="API_BASE" @success="onAdminLoginSuccess" />
+    <UserManagementDialog v-model="userManagementVisible" :api-base="API_BASE" />
+
 
     <!-- 💾 Dialog: Save API Endpoint -->
     <el-dialog v-model="saveApiDialogVisible" title="💾 สร้าง API Endpoint (Traceability Flow as a Service)" width="520px" destroy-on-close>
@@ -1484,6 +1502,7 @@
       </template>
     </el-dialog>
 
+    </template>
   </div>
 </template>
 
@@ -1497,7 +1516,8 @@ import PhilosophyDialog from './PhilosophyDialog.vue';
 import FeatureGuideDialog from './FeatureGuideDialog.vue';
 import ApiManagerDialog from './ApiManagerDialog.vue';
 import RegistryManagerDialog from './RegistryManagerDialog.vue';
-import AdminLoginDialog from './AdminLoginDialog.vue';
+import LoginPanel from './LoginPanel.vue';
+import UserManagementDialog from './UserManagementDialog.vue';
 import { useChainTracker } from '../composables/useChainTracker';
 import { useCombinedRows, isDateColumnName } from '../composables/useCombinedRows';
 import { useExcelExport } from '../composables/useExcelExport';
@@ -1506,6 +1526,47 @@ import { PIVOT_BATCH_SIZE, fetchAppConfig } from '../config/appConfig';
 const API_BASE = import.meta.env.DEV
   ? 'http://localhost:9090'
   : 'https://devth-app6.beltontechnology.com:9090';
+
+import { useQueryTemplates } from '../composables/useQueryTemplates';
+
+const {
+  templates,
+  refresh: refreshTemplatesRaw,
+} = useQueryTemplates(API_BASE);
+
+const loadingTemplates = ref(false);
+async function refreshTemplates() {
+  loadingTemplates.value = true;
+  try {
+    await refreshTemplatesRaw();
+  } catch (err) {
+    console.error('refreshTemplates error:', err);
+  } finally {
+    loadingTemplates.value = false;
+  }
+}
+
+const runningTemplate = ref(false);
+
+// A Query Templates launchpad card was clicked. Load it into the persistent
+// left-panel Master Chain Conditions editor so the user fills parameters and
+// presses Run Chain there — rather than running immediately or via a dialog.
+function handleRunTemplate(tpl) {
+  if (runningTemplate.value || loading.value) return;
+  if (templatesPanelRef.value?.selectTemplate) {
+    templatesPanelRef.value.selectTemplate(tpl.id);
+    nextTick(() => {
+      const el = document.querySelector('.search-panel');
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    ElMessage.info(`เลือกเทมเพลต "${tpl.name}" แล้ว — กรอกค่าพารามิเตอร์ทางแผงด้านซ้าย แล้วกด Run Chain`);
+  }
+}
+
+function getTableNameFromMeta(tableKey) {
+  const tbl = tablesMeta.value.find(t => t.key === tableKey);
+  return tbl ? tbl.label : tableKey;
+}
 
 const tablesMeta = ref([]);
 const templatesPanelRef = ref(null);
@@ -1554,7 +1615,8 @@ const philosophyDialogVisible = ref(false);
 const featureGuideVisible = ref(false);
 const apiManagerVisible = ref(false);
 const registryManagerVisible = ref(false);
-const adminLoginVisible = ref(false);
+// adminLoginVisible removed
+const userManagementVisible = ref(false);
 const adminUser = ref(JSON.parse(localStorage.getItem('sg_admin_user') || 'null'));
 const isSidebarPhilosophyOpen = ref(true);
 const showMorePrecautions = ref(false);
@@ -1797,9 +1859,12 @@ async function reloadTablesSchema() {
   }
 }
 
-function onAdminLoginSuccess(user) {
+function onLoginSuccess(user) {
   adminUser.value = user;
-  registryManagerVisible.value = true;
+  refreshTemplates();
+  if (user.permission === 'admin') {
+    registryManagerVisible.value = true;
+  }
 }
 
 function handleConfigCommand(command) {
@@ -1811,7 +1876,13 @@ function handleConfigCommand(command) {
     if (adminUser.value && adminUser.value.permission === 'admin') {
       registryManagerVisible.value = true;
     } else {
-      adminLoginVisible.value = true;
+      ElMessage.warning('สิทธิ์ของท่านไม่สามารถใช้งานระบบนี้ได้');
+    }
+  } else if (command === 'users') {
+    if (adminUser.value && adminUser.value.permission === 'admin') {
+      userManagementVisible.value = true;
+    } else {
+      ElMessage.warning('สิทธิ์ของท่านไม่สามารถใช้งานระบบนี้ได้');
     }
   } else if (command === 'philosophy') {
     philosophyDialogVisible.value = true;
@@ -1821,7 +1892,7 @@ function handleConfigCommand(command) {
 function handleAdminLogout() {
   localStorage.removeItem('sg_admin_user');
   adminUser.value = null;
-  ElMessage.success('ออกจากระบบสิทธิ์ Admin เรียบร้อยแล้ว');
+  ElMessage.success('ออกจากระบบเรียบร้อยแล้ว');
 }
 
 onMounted(() => {
@@ -1840,6 +1911,7 @@ onMounted(() => {
   if (typeof loadQuickPasteRules === 'function') {
     loadQuickPasteRules();
   }
+  refreshTemplates();
 });
 
 function isDateColumn(column) {
@@ -2295,6 +2367,12 @@ function executeQuickPaste() {
   const tplActive = templatesPanelRef.value?.selectedTemplate;
   if (tplActive) {
     templatesPanelRef.value.onRun();
+    return;
+  }
+
+  // Viewer ไม่มีสิทธิ์ค้นหาแบบ manual (เลือกตาราง/คอลัมน์เอง) — ต้องผ่าน Template
+  if (adminUser.value && adminUser.value.permission !== 'admin') {
+    ElMessage.warning('กรุณาเลือก Template ก่อน แล้วจึงวางรหัส/นำเข้าไฟล์เพื่อค้นหา');
     return;
   }
 
@@ -3464,6 +3542,27 @@ async function confirmSaveApi() {
   margin-left: 4px;
   font-weight: 700;
 }
+.viewer-pill-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.22);
+  color: #10b981;
+  padding: 6px 14px;
+  border-radius: 9999px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  margin-right: 12px;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.03);
+}
+.viewer-pill-indicator .logout-link-btn {
+  font-size: 0.7rem !important;
+  color: #10b981 !important;
+  padding: 0 !important;
+  margin-left: 4px;
+  font-weight: 700;
+}
 .guest-pill-indicator {
   display: flex;
   align-items: center;
@@ -3876,6 +3975,30 @@ async function confirmSaveApi() {
 }
 .stepper-node--empty:hover {
   border-color: #f56c6c;
+}
+/* Chain step still loading (placeholder waiting for search/pivot result) */
+.stepper-node--loading {
+  border-color: rgba(64, 158, 255, 0.55);
+  border-style: dashed;
+  background: rgba(64, 158, 255, 0.04);
+  animation: stepperNodePulse 1.4s ease-in-out infinite;
+}
+.stepper-node--loading:hover {
+  border-color: #409eff;
+}
+.stepper-node--loading .node-num {
+  color: #409eff;
+}
+@keyframes stepperNodePulse {
+  0%, 100% { box-shadow: 0 0 0 rgba(64, 158, 255, 0); }
+  50% { box-shadow: 0 0 12px rgba(64, 158, 255, 0.35); }
+}
+.node-status-text.loading {
+  color: #409eff;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 .node-badge {
   font-size: 1rem;
@@ -4319,161 +4442,9 @@ async function confirmSaveApi() {
   animation: fadeIn 0.4s ease;
 }
 
-.staircase-guide-header {
-  text-align: center;
-  margin-bottom: 30px;
-}
-.guide-badge {
-  background: #ecf5ff;
-  color: #409eff;
-  font-size: 0.76rem;
-  font-weight: 700;
-  padding: 6px 12px;
-  border-radius: 20px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  display: inline-block;
-  margin-bottom: 12px;
-}
-.staircase-guide-header h2 {
-  font-size: 1.45rem;
-  font-weight: 700;
-  color: var(--text-primary);
-  margin: 0 0 10px 0;
-}
-.staircase-guide-header p {
-  font-size: 0.88rem;
-  color: var(--text-secondary);
-  margin: 0;
-  max-width: 760px;
-  line-height: 1.5;
-}
-
-.staircase-steps {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  margin-bottom: 24px;
-}
-
-.staircase-step-card {
-  flex: 1;
-  background: var(--bg-condition-card);
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  padding: 20px 16px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  min-height: 270px;
-  transition: all 0.25s ease;
-  position: relative;
-}
-.staircase-step-card:hover {
-  transform: translateY(-5px);
-  border-color: #c6e2ff;
-  box-shadow: 0 8px 20px rgba(64, 158, 255, 0.08);
-  background: var(--bg-card);
-}
-
-.staircase-icon-wrapper {
-  width: 50px;
-  height: 50px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 16px;
-  position: relative;
-  box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-}
-.staircase-icon-wrapper .step-badge {
-  position: absolute;
-  top: -4px;
-  right: -4px;
-  background: #f56c6c;
-  color: white;
-  font-size: 0.68rem;
-  font-weight: 700;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1.5px solid white;
-}
-.step-icon-symbol {
-  font-size: 1.35rem;
-}
-
-.staircase-step-card h3 {
-  font-size: 0.88rem;
-  font-weight: 700;
-  color: var(--text-primary);
-  margin: 0 0 10px 0;
-  line-height: 1.35;
-}
-.staircase-step-card h3 .highlight {
-  color: #409eff;
-  font-size: 0.78rem;
-  font-weight: 600;
-}
-.staircase-step-card p {
-  font-size: 0.74rem;
-  color: var(--text-secondary);
-  margin: 0;
-  line-height: 1.5;
-}
-
-.staircase-arrow {
-  font-size: 1.5rem;
-  color: #dcdfe6;
-  font-weight: bold;
-  user-select: none;
-  animation: pulseArrow 1.5s infinite ease-in-out;
-}
-
-.staircase-footer {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--bg-condition-card);
-  padding: 10px 18px;
-  border-radius: 8px;
-  font-size: 0.78rem;
-  color: var(--text-secondary);
-}
-.staircase-footer .info-icon {
-  font-size: 1rem;
-}
-
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes pulseArrow {
-  0%, 100% { transform: translateX(0); opacity: 0.5; }
-  50% { transform: translateX(4px); opacity: 1; }
-}
-
-@media (max-width: 900px) {
-  .staircase-steps {
-    flex-direction: column;
-    gap: 16px;
-  }
-  .staircase-arrow {
-    transform: rotate(90deg);
-    animation: pulseArrowY 1.5s infinite ease-in-out;
-  }
-}
-
-@keyframes pulseArrowY {
-  0%, 100% { transform: rotate(90deg) translateX(0); opacity: 0.5; }
-  50% { transform: rotate(90deg) translateX(4px); opacity: 1; }
 }
 
 /* ── Export Format Cards ── */
@@ -5434,6 +5405,133 @@ async function confirmSaveApi() {
 
 :deep(.el-table__body tr.current-row > td.el-table__cell) {
   background-color: var(--bg-current-row) !important;
+}
+
+/* ── Template Shortcut Cards ────────────────────────────────────────────── */
+.template-shortcuts-section {
+  margin-top: 10px;
+}
+.shortcuts-badge {
+  background: #f0f9eb;
+  color: #67c23a;
+  font-size: 0.76rem;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: 20px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: inline-block;
+}
+.template-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 20px;
+  margin-top: 15px;
+  width: 100%;
+}
+.template-card {
+  background: var(--bg-condition-card);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 20px;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  flex-direction: column;
+  min-height: 200px;
+  text-align: left;
+}
+.template-card:hover {
+  transform: translateY(-4px);
+  border-color: #409eff;
+  box-shadow: 0 10px 25px rgba(64, 158, 255, 0.12);
+  background: var(--bg-card);
+}
+.template-card-header {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+.template-icon {
+  font-size: 24px;
+  background: rgba(64, 158, 255, 0.1);
+  padding: 6px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.template-title-wrap {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.template-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+  line-height: 1.3;
+}
+.template-creator {
+  font-size: 0.7rem;
+  color: #909399;
+  margin-top: 2px;
+}
+.template-desc {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  margin: 0 0 16px 0;
+  flex-grow: 1;
+}
+.template-chain-flow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 16px;
+  background: rgba(0,0,0,0.02);
+  padding: 8px 12px;
+  border-radius: 8px;
+}
+.chain-step-node {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #409eff;
+}
+.chain-step-node .step-label {
+  background: rgba(64, 158, 255, 0.08);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.chain-step-node .step-arrow {
+  color: #909399;
+  font-size: 0.65rem;
+}
+.template-card-action {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #409eff;
+  border-top: 1px solid var(--border-color);
+  padding-top: 12px;
+  margin-top: auto;
+}
+.template-card-action .action-arrow {
+  font-size: 14px;
+  transition: transform 0.2s ease;
+}
+.template-card:hover .template-card-action .action-arrow {
+  transform: translateX(4px);
 }
 </style>
 

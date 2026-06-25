@@ -1,6 +1,6 @@
 import { dbSeagateDev, getRawPool, CONNECTION_CONFIGS, DbKey } from "../db/client";
 import { registryTables, registryUsers } from "../db/schema";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, inArray } from "drizzle-orm";
 import { TABLE_REGISTRY, TableMeta, ColumnMeta, CustomSqlConfig, setDynamicRegistry } from "../config/tableRegistry";
 
 export interface DynamicTableRow {
@@ -46,6 +46,46 @@ export class RegistryService {
         if (!/can't drop|doesn't exist/i.test(dropErr?.message || "")) {
           console.warn("⚠️ Could not drop legacy UNIQUE index 'table_name':", dropErr?.message || dropErr);
         }
+      }
+
+      // Seed 'wms_lot_info' dynamic table if missing
+      const wmsCheck = await dbSeagateDev
+        .select()
+        .from(registryTables)
+        .where(eq(registryTables.id, "wms_lot_info"))
+        .limit(1);
+      if (wmsCheck.length === 0) {
+        const isoString = new Date().toISOString();
+        await dbSeagateDev.insert(registryTables).values({
+          id: "wms_lot_info",
+          tableName: "wms_lot_info",
+          label: "📦 WMS Lot Info (Shipment / FGRec)",
+          connectionKey: "Bitintra",
+          customSql: JSON.stringify({
+            connectionKey: "Bitintra",
+            multiQuery: true,
+            multiQueryType: "wms"
+          }),
+          columns: JSON.stringify({
+            prod_lot: { dbColumn: "prod_lot", label: "Prod Lot", searchable: true, linksTo: [{ targetTable: "scan21", targetColumn: "lot", label: "🔙 → Scan 2.1 (ย้อนกลับเข้า Line)" }] },
+            wms_source: { dbColumn: "wms_source", label: "WMS Source", searchable: true },
+            store_lot: { dbColumn: "store_lot", label: "Store Lot", searchable: true },
+            qty: { dbColumn: "qty", label: "Qty / Size", searchable: true },
+            do_no: { dbColumn: "do_no", label: "DO No", searchable: true },
+            plan_id: { dbColumn: "plan_id", label: "Plan ID", searchable: true },
+            product_name: { dbColumn: "product_name", label: "Product Name", searchable: true },
+            customer: { dbColumn: "customer", label: "Customer", searchable: true },
+            receive_date: { dbColumn: "receive_date", label: "Receive Date", searchable: true },
+            lot_status: { dbColumn: "lot_status", label: "Lot Status", searchable: true },
+            item_no: { dbColumn: "item_no", label: "Item No", searchable: true },
+            cust_pn: { dbColumn: "cust_pn", label: "Customer P/N", searchable: true },
+            mt_no: { dbColumn: "mt_no", label: "Material No", searchable: true }
+          }),
+          isActive: 1,
+          createdAt: isoString,
+          updatedAt: isoString
+        } as any);
+        console.log("🌱 Auto-seeded missing 'wms_lot_info' registry table.");
       }
     } catch (err) {
       console.error("❌ Failed to verify/create 'registry_tables' table on SeagateDev:", err);
@@ -456,5 +496,56 @@ export class RegistryService {
       name: u.name,
       permission: u.permission,
     };
+  }
+
+  async getAllUsers() {
+    return await dbSeagateDev.select().from(registryUsers);
+  }
+
+  async createUser(user: { en: string; name: string; permission: string }) {
+    const isoString = new Date().toISOString();
+    await dbSeagateDev.insert(registryUsers).values({
+      en: user.en.trim(),
+      name: user.name.trim(),
+      permission: user.permission.trim(),
+      createdAt: isoString,
+      updatedAt: isoString,
+    });
+    return user;
+  }
+
+  async updateUser(en: string, patch: { name?: string; permission?: string }) {
+    const existing = await dbSeagateDev
+      .select()
+      .from(registryUsers)
+      .where(eq(registryUsers.en, en))
+      .limit(1);
+    if (existing.length === 0) throw new Error(`User not found: ${en}`);
+
+    await dbSeagateDev
+      .update(registryUsers)
+      .set({
+        name: patch.name !== undefined ? patch.name.trim() : existing[0].name,
+        permission: patch.permission !== undefined ? patch.permission.trim() : existing[0].permission,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(registryUsers.en, en));
+    return { en, ...patch };
+  }
+
+  async deleteUser(en: string) {
+    await dbSeagateDev.delete(registryUsers).where(eq(registryUsers.en, en));
+    return true;
+  }
+
+  async getUsersByEns(ens: string[]) {
+    if (!ens || ens.length === 0) return [];
+    const uniqueEns = [...new Set(ens.map(e => String(e).trim()).filter(Boolean))];
+    if (uniqueEns.length === 0) return [];
+    
+    return await dbSeagateDev
+      .select()
+      .from(registryUsers)
+      .where(inArray(registryUsers.en, uniqueEns));
   }
 }

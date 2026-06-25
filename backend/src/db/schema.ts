@@ -223,6 +223,8 @@ export const queryTemplates = mysqlTable("query_templates", {
   favoriteColumns: text("favorite_columns"),
   createdAt: varchar("created_at", { length: 50 }).notNull(),
   updatedAt: varchar("updated_at", { length: 50 }).notNull(),
+  createdBy: varchar("created_by", { length: 50 }),
+  visibility: varchar("visibility", { length: 50 }).default("public"),
 });
 
 // ============================================================

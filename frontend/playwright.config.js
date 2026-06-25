@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: '.',
-  testMatch: 'smart_search_e2e.spec.js',
+  testMatch: '*_e2e.spec.js',
   timeout: 60 * 1000,
   expect: {
     timeout: 10 * 1000

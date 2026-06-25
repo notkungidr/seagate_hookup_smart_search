@@ -116,10 +116,21 @@ function validateHop(tablesMeta, prevTableKey, hop) {
 export function useQueryTemplates(apiBase) {
   const templates = ref([]);
 
+  function getAuthHeaders(extra = {}) {
+    const user = JSON.parse(localStorage.getItem('sg_admin_user') || 'null');
+    const headers = { ...extra };
+    if (user && user.en) {
+      headers['x-user-en'] = String(user.en);
+    }
+    return headers;
+  }
+
   async function refresh() {
     if (!apiBase) return;
     try {
-      const res = await fetch(`${apiBase}/api/templates`);
+      const res = await fetch(`${apiBase}/api/templates`, {
+        headers: getAuthHeaders()
+      });
       const json = await res.json();
       if (json.success) {
         templates.value = json.data || [];
@@ -151,13 +162,15 @@ export function useQueryTemplates(apiBase) {
       favoriteColumns: Array.isArray(input.favoriteColumns) ? input.favoriteColumns : [],
       createdAt: input.createdAt || now,
       updatedAt: now,
+      visibility: input.visibility || 'public',
+      allowedUsers: Array.isArray(input.allowedUsers) ? input.allowedUsers : [],
     };
     tpl.stepsChain = [tpl.rootTable, ...tpl.hops.map(h => h.targetTable)];
 
     try {
       const res = await fetch(`${apiBase}/api/templates`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(tpl),
       });
       const json = await res.json();
@@ -191,7 +204,7 @@ export function useQueryTemplates(apiBase) {
     try {
       const res = await fetch(`${apiBase}/api/templates/${id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(patch),
       });
       const json = await res.json();
@@ -213,6 +226,7 @@ export function useQueryTemplates(apiBase) {
     try {
       const res = await fetch(`${apiBase}/api/templates/${id}`, {
         method: 'DELETE',
+        headers: getAuthHeaders()
       });
       const json = await res.json();
       if (json.success) {
