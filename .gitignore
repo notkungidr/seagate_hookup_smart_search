@@ -8,10 +8,13 @@ dist/
 build/
 .output/
 
-# Environment files
+# Environment files (NEVER commit real credentials!)
 .env
 .env.*
 !.env.example
+backend/.env
+backend/.env.*
+!backend/.env.example
 
 # IDE
 .vscode/

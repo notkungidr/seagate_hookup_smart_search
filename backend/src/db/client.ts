@@ -7,96 +7,97 @@ const QUERY_TIMEOUT_MS = 120000; // 2 minutes (120 seconds) as requested by user
 // ============================================================
 // CONNECTION REGISTRY
 // เพิ่ม Server ใหม่: เพิ่มแค่ 1 entry ที่นี่เท่านั้น!
+// ⚠️ Credentials อ่านจาก Environment Variables (.env)
 // ============================================================
 export const CONNECTION_CONFIGS = {
   seagate: {
-    host: "sghu-db02.th.belton.corp",
-    user: "appsupport8",
-    password: "It-development2006Bit",
+    host: process.env.DB_SEAGATE_HOST || "sghu-db02.th.belton.corp",
+    user: process.env.DB_SEAGATE_USER!,
+    password: process.env.DB_SEAGATE_PASSWORD!,
     database: "seagate",
   },
   ACA: {
-    host: "sghu-db02.th.belton.corp",
-    user: "appsupport8",
-    password: "It-development2006Bit",
+    host: process.env.DB_SEAGATE_HOST || "sghu-db02.th.belton.corp",
+    user: process.env.DB_SEAGATE_USER!,
+    password: process.env.DB_SEAGATE_PASSWORD!,
     database: "ACA",
   },
   Bitintra: {
-    host: "bitintra-db02.th.belton.corp",
-    user: "intranet4",
-    password: "Mydb-Bit2007Jan",
+    host: process.env.DB_BITINTRA_HOST || "bitintra-db02.th.belton.corp",
+    user: process.env.DB_BITINTRA_USER!,
+    password: process.env.DB_BITINTRA_PASSWORD!,
     database: undefined, // ไม่กำหนด default database → ระบุชื่อ DB ใน Query ได้อิสระ (*)
   },
   BITR: {
-    host: "bitintra-db02.th.belton.corp",
-    user: "intranet4",
-    password: "Mydb-Bit2007Jan",
-    database: "BITR", // ไม่กำหนด default database → ระบุชื่อ DB ใน Query ได้อิสระ (*)
+    host: process.env.DB_BITINTRA_HOST || "bitintra-db02.th.belton.corp",
+    user: process.env.DB_BITINTRA_USER!,
+    password: process.env.DB_BITINTRA_PASSWORD!,
+    database: "BITR",
   },
   BITR_IMM: {
-    host: "bitintra-db02.th.belton.corp",
-    user: "intranet4",
-    password: "Mydb-Bit2007Jan",
-    database: "BITR_IMM", // ไม่กำหนด default database → ระบุชื่อ DB ใน Query ได้อิสระ (*)
+    host: process.env.DB_BITINTRA_HOST || "bitintra-db02.th.belton.corp",
+    user: process.env.DB_BITINTRA_USER!,
+    password: process.env.DB_BITINTRA_PASSWORD!,
+    database: "BITR_IMM",
   },
   BITR_SM: {
-    host: "bitintra-db02.th.belton.corp",
-    user: "intranet4",
-    password: "Mydb-Bit2007Jan",
-    database: "BITR_SM", // แก้จาก BITR_IMM → BITR_SM
+    host: process.env.DB_BITINTRA_HOST || "bitintra-db02.th.belton.corp",
+    user: process.env.DB_BITINTRA_USER!,
+    password: process.env.DB_BITINTRA_PASSWORD!,
+    database: "BITR_SM",
   },
   WORKFLOW: {
-    host: "bitintra-db02.th.belton.corp",
-    user: "intranet4",
-    password: "Mydb-Bit2007Jan",
-    database: "WORKFLOW", // ไม่กำหนด default database → ระบุชื่อ DB ใน Query ได้อิสระ (*)
+    host: process.env.DB_BITINTRA_HOST || "bitintra-db02.th.belton.corp",
+    user: process.env.DB_BITINTRA_USER!,
+    password: process.env.DB_BITINTRA_PASSWORD!,
+    database: "WORKFLOW",
   },
   dbHr: {
-    host: "bitintra-db02.th.belton.corp",
-    user: "adminapp",
-    password: "It-development2006Bit",
-    database: "hr", // ไม่กำหนด default database → ระบุชื่อ DB ใน Query ได้อิสระ (*)
+    host: process.env.DB_BITINTRA_HOST || "bitintra-db02.th.belton.corp",
+    user: process.env.DB_WMS_USER!,
+    password: process.env.DB_WMS_PASSWORD!,
+    database: "hr",
   },
   dbBIT: {
-    host: "bitintra-db02.th.belton.corp",
-    user: "adminapp",
-    password: "It-development2006Bit",
-    database: "BIT", // ไม่กำหนด default database → ระบุชื่อ DB ใน Query ได้อิสระ (*)
+    host: process.env.DB_BITINTRA_HOST || "bitintra-db02.th.belton.corp",
+    user: process.env.DB_WMS_USER!,
+    password: process.env.DB_WMS_PASSWORD!,
+    database: "BIT",
   },
   dbWMS: {
-    host: "bitintra-db02.th.belton.corp",
-    user: "adminapp",
-    password: "It-development2006Bit",
-    database: "WMS", // ไม่กำหนด default database → ระบุชื่อ DB ใน Query ได้อิสระ (*)
+    host: process.env.DB_WMS_HOST || "bitintra-db02.th.belton.corp",
+    user: process.env.DB_WMS_USER!,
+    password: process.env.DB_WMS_PASSWORD!,
+    database: "WMS",
   },
   SeagateDev: {
-    host: "devth-db2.th.belton.corp",
-    user: "adminapp",
-    password: "It-development2006Bit",
+    host: process.env.DB_SEAGATEDEV_HOST || "devth-db2.th.belton.corp",
+    user: process.env.DB_SEAGATEDEV_USER!,
+    password: process.env.DB_SEAGATEDEV_PASSWORD!,
     database: "seagate",
   },
   SGCOIL: {
-    host: "wdhu-db02.th.belton.corp",
-    user: "appsupport8",
-    password: "It-development2006Bit",
+    host: process.env.DB_SGCOIL_HOST || "wdhu-db02.th.belton.corp",
+    user: process.env.DB_SGCOIL_USER!,
+    password: process.env.DB_SGCOIL_PASSWORD!,
     database: "SGCOIL",
   },
   HGSTACA: {
-    host: "wdhu-db02.th.belton.corp",
-    user: "intranet4",
-    password: "Mydb-Bit2007Jan",
+    host: process.env.DB_HGSTACA_HOST || "wdhu-db02.th.belton.corp",
+    user: process.env.DB_HGSTACA_USER!,
+    password: process.env.DB_HGSTACA_PASSWORD!,
     database: "HGSTACA",
   },
   SEAPRINT: {
-    host: "sgfc-db02.th.belton.corp",
-    user: "intranet4",
-    password: "Mydb-Bit2007Jan",
+    host: process.env.DB_SEAPRINT_HOST || "sgfc-db02.th.belton.corp",
+    user: process.env.DB_SEAPRINT_USER!,
+    password: process.env.DB_SEAPRINT_PASSWORD!,
     database: "seaprint",
   },
   SOFT: {
-    host: "sgfc-db02.th.belton.corp",
-    user: "intranet4",
-    password: "Mydb-Bit2007Jan",
+    host: process.env.DB_SOFT_HOST || "sgfc-db02.th.belton.corp",
+    user: process.env.DB_SOFT_USER!,
+    password: process.env.DB_SOFT_PASSWORD!,
     database: "soft",
   },
 } as const;
