@@ -31,7 +31,7 @@
         <div class="ft-guide-steps">
           <!-- Step 1 -->
           <div class="ft-guide-step-card">
-            <div class="ft-guide-icon" style="background: linear-gradient(135deg, #409eff, #337ecc)">
+            <div class="ft-guide-icon" style="background: linear-gradient(135deg, var(--c-primary), #337ecc)">
               <span class="ft-guide-step-badge">1</span>
               <span class="ft-guide-symbol">🏁</span>
             </div>
@@ -43,7 +43,7 @@
 
           <!-- Step 2 -->
           <div class="ft-guide-step-card">
-            <div class="ft-guide-icon" style="background: linear-gradient(135deg, #e6a23c, #b88230)">
+            <div class="ft-guide-icon" style="background: linear-gradient(135deg, var(--c-warning), #b88230)">
               <span class="ft-guide-step-badge">2</span>
               <span class="ft-guide-symbol">🔍</span>
             </div>
@@ -55,7 +55,7 @@
 
           <!-- Step 3 -->
           <div class="ft-guide-step-card">
-            <div class="ft-guide-icon" style="background: linear-gradient(135deg, #67c23a, #529b2e)">
+            <div class="ft-guide-icon" style="background: linear-gradient(135deg, var(--c-success), #529b2e)">
               <span class="ft-guide-step-badge">3</span>
               <span class="ft-guide-symbol">⛓️</span>
             </div>
@@ -67,7 +67,7 @@
 
           <!-- Step 4 -->
           <div class="ft-guide-step-card">
-            <div class="ft-guide-icon" style="background: linear-gradient(135deg, #909399, #606266)">
+            <div class="ft-guide-icon" style="background: linear-gradient(135deg, var(--c-info), var(--text-secondary))">
               <span class="ft-guide-step-badge">4</span>
               <span class="ft-guide-symbol">📊</span>
             </div>
@@ -292,7 +292,7 @@
               <strong>Bidirectional Pivot Engine from Any Start Step (สืบค้นย้อนกลับสองทิศทางจากขั้นตอนใดก็ได้):</strong>
               1. 🎯 <strong>เปลี่ยนตารางเริ่มต้นแม่แบบอิสระ (Start Step Selection):</strong> วิศวกรสามารถคลิกเลือกขั้นตอน (Pill Card) ใดในหน้าประมวลผลแม่แบบเพื่อใช้เป็นขั้นตอนตั้งต้นในการค้นหาเงื่อนไขได้ทันที โดยตารางฟิลด์และคอลัมน์ในการป้อนเงื่อนไขด้านล่างจะปรับเปลี่ยนตามขั้นตอนที่เลือกอัตโนมัติ
               2. 🔄 <strong>คิวรีสืบค้นย้อนรอยสองทิศทาง (BFS Bidirectional Engine):</strong> เพิ่มระบบประมวลผล BFS ท่องความสัมพันธ์ใน Composables เพื่อทำ Pivot ย้อนรอยย้อนกลับ (Backward) ไปยังขั้นตอนแรก และสืบค้นต่อไปข้างหน้า (Forward) ไปยังขั้นตอนท้ายพร้อมกันอัตโนมัติในครั้งเดียว
-              3. 🎨 <strong>ความหรูหราแบบ Glassmorphic (Glowing Selection):</strong> ออกแบบสถานะ Pill ของตารางหลักให้มีขอบแสงสีเขียวเรืองรอง (`#67c23a` neon glow) สวยงามสอดคล้องกับ UI ระบบที่ล้ำสมัย
+              3. 🎨 <strong>ความหรูหราแบบ Glassmorphic (Glowing Selection):</strong> ออกแบบสถานะ Pill ของตารางหลักให้มีขอบแสงสีเขียวเรืองรอง (`var(--c-success)` neon glow) สวยงามสอดคล้องกับ UI ระบบที่ล้ำสมัย
             </p>
           </div>
           <div class="timeline-event">
@@ -406,7 +406,7 @@ defineEmits(['update:modelValue']);
 }
 :deep(.features-dialog .el-dialog__title) {
   font-weight: 700;
-  font-size: 1.3rem;
+  font-size: var(--fs-lg);
 }
 :deep(.features-dialog .el-dialog__body) {
   padding: 28px !important;
@@ -439,13 +439,13 @@ defineEmits(['update:modelValue']);
 }
 .ft-banner-text h3 {
   margin: 0 0 6px;
-  font-size: 1.2rem;
+  font-size: var(--fs-lg);
   font-weight: 700;
   color: #0f172a;
 }
 .ft-banner-text p {
   margin: 0;
-  font-size: 0.9rem;
+  font-size: var(--fs-base);
   color: #334155;
   line-height: 1.6;
 }
@@ -464,8 +464,8 @@ defineEmits(['update:modelValue']);
 }
 .ft-guide-badge {
   background: #ecf5ff;
-  color: #409eff;
-  font-size: 0.72rem;
+  color: var(--c-primary);
+  font-size: var(--fs-xs);
   font-weight: 700;
   padding: 6px 12px;
   border-radius: 20px;
@@ -475,13 +475,13 @@ defineEmits(['update:modelValue']);
   margin-bottom: 12px;
 }
 .ft-guide-header h3 {
-  font-size: 1.25rem;
+  font-size: var(--fs-lg);
   font-weight: 700;
   color: #0f172a;
   margin: 0 0 8px 0;
 }
 .ft-guide-header p {
-  font-size: 0.85rem;
+  font-size: var(--fs-sm);
   color: #64748b;
   margin: 0 auto;
   max-width: 720px;
@@ -519,7 +519,7 @@ defineEmits(['update:modelValue']);
   position: absolute;
   top: -4px;
   right: -4px;
-  background: #f56c6c;
+  background: var(--c-danger);
   color: white;
   font-size: 0.66rem;
   font-weight: 700;
@@ -532,7 +532,7 @@ defineEmits(['update:modelValue']);
   border: 1.5px solid white;
 }
 .ft-guide-symbol {
-  font-size: 1.3rem;
+  font-size: var(--fs-lg);
 }
 .ft-guide-step-card h4 {
   font-size: 0.86rem;
@@ -542,12 +542,12 @@ defineEmits(['update:modelValue']);
   line-height: 1.35;
 }
 .ft-guide-highlight {
-  color: #409eff;
-  font-size: 0.76rem;
+  color: var(--c-primary);
+  font-size: var(--fs-sm);
   font-weight: 600;
 }
 .ft-guide-step-card p {
-  font-size: 0.74rem;
+  font-size: var(--fs-xs);
   color: #64748b;
   margin: 0;
   line-height: 1.5;
@@ -555,7 +555,7 @@ defineEmits(['update:modelValue']);
 .ft-guide-arrow {
   display: flex;
   align-items: center;
-  font-size: 1.4rem;
+  font-size: var(--fs-xl);
   color: #cbd5e1;
   font-weight: bold;
   user-select: none;
@@ -568,12 +568,12 @@ defineEmits(['update:modelValue']);
   border: 1px solid #e2e8f0;
   padding: 10px 16px;
   border-radius: 8px;
-  font-size: 0.78rem;
+  font-size: var(--fs-sm);
   color: #475569;
   margin-top: 20px;
 }
 .ft-guide-info-icon {
-  font-size: 1rem;
+  font-size: var(--fs-md);
 }
 @media (max-width: 900px) {
   .ft-guide-steps {
@@ -606,11 +606,11 @@ defineEmits(['update:modelValue']);
   border-bottom: 2px solid #f1f5f9;
 }
 .cat-icon {
-  font-size: 1.4rem;
+  font-size: var(--fs-xl);
 }
 .ft-category-header h4 {
   margin: 0;
-  font-size: 1.05rem;
+  font-size: var(--fs-md);
   font-weight: 700;
 }
 .color-blue h4 { color: #0284c7; }
@@ -646,12 +646,12 @@ defineEmits(['update:modelValue']);
   margin-bottom: 6px;
 }
 .ft-item-title strong {
-  font-size: 0.9rem;
+  font-size: var(--fs-base);
   color: #1e293b;
 }
 .ft-item p {
   margin: 0;
-  font-size: 0.82rem;
+  font-size: var(--fs-sm);
   color: #64748b;
   line-height: 1.5;
 }
@@ -665,7 +665,7 @@ defineEmits(['update:modelValue']);
 }
 .changelog-title {
   display: block;
-  font-size: 1rem;
+  font-size: var(--fs-md);
   font-weight: 700;
   color: #1e293b;
   margin-bottom: 18px;
@@ -709,12 +709,12 @@ defineEmits(['update:modelValue']);
   margin-bottom: 6px;
 }
 .event-date {
-  font-size: 0.85rem;
+  font-size: var(--fs-sm);
   font-weight: 700;
   color: #0f172a;
 }
 .event-badge {
-  font-size: 0.7rem;
+  font-size: var(--fs-xs);
   font-weight: 600;
   padding: 2px 8px;
   border-radius: 4px;
@@ -731,7 +731,7 @@ defineEmits(['update:modelValue']);
 }
 .event-desc {
   margin: 0;
-  font-size: 0.82rem;
+  font-size: var(--fs-sm);
   color: #475569;
   line-height: 1.5;
 }

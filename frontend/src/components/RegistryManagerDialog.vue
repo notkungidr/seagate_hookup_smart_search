@@ -292,7 +292,7 @@ WHERE 1=1 AND ?col IN (?)</code></pre>
               <!-- Column basic info -->
               <div class="col-card-header" style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
                 <div style="display: flex; align-items: center; gap: 6px; flex: 1; margin-right: 8px;">
-                  <span class="db-col-name" style="white-space: nowrap; color: #409eff;">💻 Column:</span>
+                  <span class="db-col-name" style="white-space: nowrap; color: var(--c-primary);">💻 Column:</span>
                   <el-input
                     v-model="col.dbColumn"
                     placeholder="Physical column or Table.Column"
@@ -1071,7 +1071,7 @@ function confirmDelete(item) {
 
 :deep(.registry-manager-dialog .el-dialog__title) {
   font-weight: 700;
-  font-size: 1.35rem;
+  font-size: var(--fs-xl);
 }
 
 :deep(.registry-manager-dialog .el-dialog__body) {
@@ -1105,7 +1105,7 @@ function confirmDelete(item) {
 
 .panel-title {
   font-weight: 700;
-  font-size: 0.95rem;
+  font-size: var(--fs-base);
   color: #1e293b;
   display: flex;
   align-items: center;
@@ -1125,7 +1125,7 @@ function confirmDelete(item) {
 }
 
 .section-title-group {
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   font-weight: 800;
   text-transform: uppercase;
   color: #64748b;
@@ -1134,7 +1134,7 @@ function confirmDelete(item) {
 }
 
 .empty-dynamic-hint {
-  font-size: 0.76rem;
+  font-size: var(--fs-sm);
   color: #94a3b8;
   padding: 12px 10px;
   text-align: center;
@@ -1170,7 +1170,7 @@ function confirmDelete(item) {
 
 .item-name {
   font-weight: 700;
-  font-size: 0.85rem;
+  font-size: var(--fs-sm);
   color: #0f172a;
   white-space: nowrap;
   overflow: hidden;
@@ -1179,7 +1179,7 @@ function confirmDelete(item) {
 }
 
 .badge {
-  font-size: 0.65rem;
+  font-size: var(--fs-xs);
   font-weight: 800;
   padding: 2px 8px;
   border-radius: 6px;
@@ -1197,7 +1197,7 @@ function confirmDelete(item) {
 }
 
 .item-label {
-  font-size: 0.8rem;
+  font-size: var(--fs-sm);
   color: #334155;
   margin-bottom: 4px;
   font-weight: 500;
@@ -1207,7 +1207,7 @@ function confirmDelete(item) {
 }
 
 .item-db-info {
-  font-size: 0.7rem;
+  font-size: var(--fs-xs);
   color: #94a3b8;
   font-family: monospace;
 }
@@ -1220,7 +1220,7 @@ function confirmDelete(item) {
 
 .delete-item-btn {
   padding: 0 4px !important;
-  font-size: 1rem !important;
+  font-size: var(--fs-md) !important;
   opacity: 0.5;
   transition: opacity 0.2s;
 }
@@ -1256,14 +1256,14 @@ function confirmDelete(item) {
 }
 
 .empty-state-pane h3 {
-  font-size: 1.2rem;
+  font-size: var(--fs-lg);
   font-weight: 700;
   color: #0f172a;
   margin: 0 0 10px;
 }
 
 .empty-state-pane p {
-  font-size: 0.85rem;
+  font-size: var(--fs-sm);
   max-width: 420px;
   line-height: 1.6;
 }
@@ -1299,7 +1299,7 @@ function confirmDelete(item) {
 }
 
 :deep(.config-form .el-form-item__label) {
-  font-size: 0.78rem;
+  font-size: var(--fs-sm);
   font-weight: 700;
   color: #334155;
   padding-bottom: 4px;
@@ -1321,7 +1321,7 @@ function confirmDelete(item) {
 }
 
 .section-desc-hint {
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   color: #64748b;
   margin: 6px 0 0 0;
 }
@@ -1340,7 +1340,7 @@ function confirmDelete(item) {
   padding: 10px 14px;
   margin-top: 8px;
   border-radius: 0 8px 8px 0;
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   color: #334155;
 }
 
@@ -1378,7 +1378,7 @@ function confirmDelete(item) {
   background: #1e293b;
   color: #94a3b8;
   padding: 8px 16px;
-  font-size: 0.7rem;
+  font-size: var(--fs-xs);
   font-family: monospace;
   display: flex;
   justify-content: space-between;
@@ -1395,9 +1395,9 @@ function confirmDelete(item) {
 }
 
 .console-error-msg {
-  color: #ef4444;
+  color: var(--c-danger);
   font-family: monospace;
-  font-size: 0.74rem;
+  font-size: var(--fs-xs);
   line-height: 1.5;
 }
 
@@ -1435,7 +1435,7 @@ function confirmDelete(item) {
   color: #1d4ed8;
   border-radius: 10px;
   padding: 16px;
-  font-size: 0.78rem;
+  font-size: var(--fs-sm);
   line-height: 1.6;
 }
 
@@ -1462,7 +1462,7 @@ function confirmDelete(item) {
 
 .db-col-name {
   font-family: monospace;
-  font-size: 0.8rem;
+  font-size: var(--fs-sm);
   font-weight: 700;
   color: #0f172a;
 }
@@ -1473,7 +1473,7 @@ function confirmDelete(item) {
 
 :deep(.col-inputs-row .el-input-group__prepend) {
   background: #f8fafc;
-  font-size: 0.7rem;
+  font-size: var(--fs-xs);
   color: #64748b;
   font-weight: 700;
 }
@@ -1493,7 +1493,7 @@ function confirmDelete(item) {
 }
 
 .pivot-links-header span {
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   font-weight: 700;
   color: #64748b;
 }
@@ -1521,7 +1521,7 @@ function confirmDelete(item) {
 }
 
 .link-target-text {
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   font-family: monospace;
   color: #166534;
   display: flex;
@@ -1529,7 +1529,7 @@ function confirmDelete(item) {
 }
 
 .link-lbl-bubble {
-  font-size: 0.65rem;
+  font-size: var(--fs-xs);
   color: #15803d;
   font-family: inherit;
   font-weight: bold;
@@ -1537,12 +1537,12 @@ function confirmDelete(item) {
 
 .delete-link-btn {
   padding: 0 2px !important;
-  font-size: 0.7rem !important;
+  font-size: var(--fs-xs) !important;
 }
 
 /* Link builder modal styling */
 .link-builder-modal :deep(.el-form-item__label) {
-  font-size: 0.76rem;
+  font-size: var(--fs-sm);
   font-weight: 700;
   color: #475569;
 }
@@ -1593,7 +1593,7 @@ function confirmDelete(item) {
 :deep(.custom-sql-collapse .el-collapse-item__header) {
   background: #f8fafc;
   padding: 0 16px;
-  font-size: 0.76rem;
+  font-size: var(--fs-sm);
   font-weight: 700;
   color: #1e3a8a;
   border-bottom: 1px solid #e2e8f0;
@@ -1605,7 +1605,7 @@ function confirmDelete(item) {
   padding: 16px;
   background: #ffffff;
   color: #334155;
-  font-size: 0.74rem;
+  font-size: var(--fs-xs);
 }
 
 .tutorial-cases-content {
@@ -1625,7 +1625,7 @@ function confirmDelete(item) {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.76rem;
+  font-size: var(--fs-sm);
   font-weight: 700;
   color: #0f172a;
   margin: 0 0 6px 0;
@@ -1635,7 +1635,7 @@ function confirmDelete(item) {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.76rem;
+  font-size: var(--fs-sm);
   font-weight: 700;
   color: #1e3a8a;
   margin: 0 0 6px 0;
@@ -1646,7 +1646,7 @@ function confirmDelete(item) {
   color: white;
   padding: 1px 6px;
   border-radius: 4px;
-  font-size: 0.65rem;
+  font-size: var(--fs-xs);
   font-weight: 700;
 }
 
@@ -1656,19 +1656,19 @@ function confirmDelete(item) {
 
 .case-description {
   margin: 0 0 8px 0;
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   color: #475569;
   line-height: 1.4;
 }
 
 .rule-warning-alert {
   background: #fef2f2;
-  border-left: 3px solid #ef4444;
+  border-left: 3px solid var(--c-danger);
   color: #991b1b;
   padding: 8px;
   margin-bottom: 8px;
   border-radius: 0 4px 4px 0;
-  font-size: 0.7rem;
+  font-size: var(--fs-xs);
   line-height: 1.4;
 }
 
@@ -1679,7 +1679,7 @@ function confirmDelete(item) {
   padding: 8px;
   margin-bottom: 8px;
   border-radius: 0 4px 4px 0;
-  font-size: 0.7rem;
+  font-size: var(--fs-xs);
   line-height: 1.4;
 }
 

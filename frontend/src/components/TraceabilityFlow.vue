@@ -24,7 +24,7 @@
             circle
             size="small"
             class="theme-toggle-btn"
-            style="margin-right: 12px; font-size: 14px; border: none; background: rgba(255, 255, 255, 0.15); color: #ffffff; cursor: pointer; transition: all 0.2s;"
+            style="margin-right: 12px; font-size: var(--fs-base); border: none; background: rgba(255, 255, 255, 0.15); color: #ffffff; cursor: pointer; transition: all 0.2s;"
             @click="toggleTheme"
             :title="isDark ? 'สลับเป็น Light Mode' : 'สลับเป็น Dark Mode'"
           >
@@ -97,7 +97,7 @@
               v-else
               size="small"
               @click="resetAll"
-              type="danger"
+              type="info"
               plain
               :disabled="loading"
             >
@@ -163,10 +163,10 @@
             <div class="qp-header">
               <span class="qp-title">⚡ Quick Paste & Search</span>
               <div style="display: flex; gap: 8px; align-items: center;">
-                <el-button id="btn-quick-paste-upload" type="primary" link size="small" @click="triggerFileInput" style="font-weight: 600; font-size: 11px;">
+                <el-button id="btn-quick-paste-upload" type="primary" link size="small" @click="triggerFileInput" style="font-weight: 600; font-size: var(--fs-xs);">
                   📂 นำเข้าไฟล์
                 </el-button>
-                <el-button v-if="adminUser?.permission === 'admin'" id="btn-quick-paste-config" type="primary" link size="small" @click="quickPasteRulesDialogVisible = true" style="font-weight: 600; font-size: 11px;">
+                <el-button v-if="adminUser?.permission === 'admin'" id="btn-quick-paste-config" type="primary" link size="small" @click="quickPasteRulesDialogVisible = true" style="font-weight: 600; font-size: var(--fs-xs);">
                   ⚙️ ตั้งค่า Rules
                 </el-button>
               </div>
@@ -199,7 +199,7 @@
                 clearable
                 type="textarea"
                 :rows="2"
-                style="width: 100%; font-family: monospace; font-size: 11px;"
+                style="width: 100%; font-family: monospace; font-size: var(--fs-xs);"
                 @keyup.enter.ctrl.exact="executeQuickPaste"
                 @keyup.enter.meta.exact="executeQuickPaste"
               />
@@ -210,7 +210,7 @@
                 
                 <!-- Multiple match selection -->
                 <div v-if="quickPasteMatches.length > 1" style="margin-top: 8px;">
-                  <div style="font-size: 11px; font-weight: bold; color: #b88230; margin-bottom: 6px; display: flex; align-items: center; gap: 4px;">
+                  <div style="font-size: var(--fs-xs); font-weight: bold; color: #b88230; margin-bottom: 6px; display: flex; align-items: center; gap: 4px;">
                     📍 พบเป้าหมายมากกว่า 1 จุด กรุณาเลือกเส้นทาง (Routing):
                   </div>
                   <div style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px;">
@@ -226,13 +226,13 @@
                         <span class="qp-radio-dot"></span>
                       </div>
                       <div class="qp-route-info">
-                        <strong style="color: #303133;">{{ match.rule.name }}</strong>
+                        <strong style="color: var(--text-primary);">{{ match.rule.name }}</strong>
                         <span class="qp-route-path">{{ match.tableLabel }} ➔ {{ match.columnLabel }}</span>
                       </div>
                     </div>
                   </div>
                 </div>
-                <div v-else class="qp-routing-path" style="font-size: 11px; margin-top: 6px; margin-bottom: 4px; color: #606266; background: rgba(0,0,0,0.02); padding: 4px 8px; border-radius: 4px;">
+                <div v-else class="qp-routing-path" style="font-size: var(--fs-xs); margin-top: 6px; margin-bottom: 4px; color: var(--text-secondary); background: rgba(0,0,0,0.02); padding: 4px 8px; border-radius: 4px;">
                   📍 Routing: <strong>{{ activeQuickPasteMatch.tableLabel }}</strong> ➔ <strong>{{ activeQuickPasteMatch.columnLabel }}</strong>
                 </div>
 
@@ -413,10 +413,10 @@
                 <div v-else class="in-input-block">
                   <div v-if="cond.values && cond.values.length > 0" class="in-file-loaded-alert">
                     <div style="display: flex; align-items: center; gap: 8px;">
-                      <span class="file-icon" style="font-size: 18px;">📄</span>
+                      <span class="file-icon" style="font-size: var(--fs-md);">📄</span>
                       <div class="file-info" style="display: flex; flex-direction: column;">
-                        <strong style="color: #67c23a; font-size: 11px; word-break: break-all;">{{ cond.filename || 'ข้อมูลอัปโหลดสำเร็จ' }}</strong>
-                        <span style="font-size: 10px; color: #909399;">{{ cond.values.length.toLocaleString() }} รายการ (พร้อมค้นหา)</span>
+                        <strong style="color: var(--c-success); font-size: var(--fs-xs); word-break: break-all;">{{ cond.filename || 'ข้อมูลอัปโหลดสำเร็จ' }}</strong>
+                        <span style="font-size: var(--fs-xs); color: var(--c-info);">{{ cond.values.length.toLocaleString() }} รายการ (พร้อมค้นหา)</span>
                       </div>
                     </div>
                     <el-button type="danger" size="small" circle plain @click="cond.values = []; cond.multiValue = ''; cond.filename = '';" style="padding: 4px; margin-left: auto;">
@@ -429,13 +429,13 @@
                       type="textarea"
                       :rows="4"
                       placeholder="วางค่าหลายค่า คั่นด้วย Enter หรือ ,"
-                      style="width:100%;font-size:12px;font-family:monospace"
+                      style="width:100%;font-size: var(--fs-sm);font-family:monospace"
                     />
                     <div class="in-hint">
                       <el-tag size="small" type="info" effect="plain">
                         {{ getInValueCount(cond.multiValue) }} ค่า
                       </el-tag>
-                      <span style="font-size:11px;color:#909399;margin-left:6px">Enter หรือ , คั่นค่า</span>
+                      <span style="font-size: var(--fs-xs);color:var(--c-info);margin-left:6px">Enter หรือ , คั่นค่า</span>
                     </div>
                   </template>
                 </div>
@@ -653,13 +653,13 @@
                     <div class="node-content">
                       <div class="node-header">
                         <!-- If it is a branch step, show a beautiful violet branch tag -->
-                        <span class="node-num" v-if="step.parentIdx !== null && step.parentIdx !== step.originalIdx - 1" :style="{ color: step.total > 0 ? STEP_THEMES[step.originalIdx % STEP_THEMES.length].badgeText : '' }">
+                        <span class="node-num" v-if="step.parentIdx !== null && step.parentIdx !== step.originalIdx - 1" :style="{ color: step.total > 0 ? getStepTheme(step.originalIdx).badgeText : '' }">
                           Step {{ step.originalIdx + 1 }}
                           <el-tag size="small" effect="plain" class="node-branch-tag" :style="getBranchTagStyle(step.parentIdx)">
                             ⌥ S{{ step.parentIdx + 1 }}
                           </el-tag>
                         </span>
-                        <span class="node-num" v-else :style="{ color: step.total > 0 ? STEP_THEMES[step.originalIdx % STEP_THEMES.length].badgeText : '' }">Step {{ step.originalIdx + 1 }}</span>
+                        <span class="node-num" v-else :style="{ color: step.total > 0 ? getStepTheme(step.originalIdx).badgeText : '' }">Step {{ step.originalIdx + 1 }}</span>
                         <span class="node-label" :title="step.tableLabel">{{ step.tableLabel }}</span>
                       </div>
                       <div class="node-details">
@@ -716,7 +716,7 @@
 
               <!-- Axis Selector: Swapping the Left-Join pivot main axis dynamically inside combine view -->
               <div class="combine-axis-selector" style="margin-left: auto; display: flex; align-items: center; gap: 8px;">
-                <span style="font-size: 0.72rem; font-weight: bold; color: rgba(255,255,255,0.7); white-space: nowrap;">
+                <span style="font-size: var(--fs-xs); font-weight: bold; color: rgba(255,255,255,0.7); white-space: nowrap;">
                   🎯 แกนหลัก Left-Join (Master Axis):
                 </span>
                 <el-select
@@ -766,7 +766,7 @@
 
                   <!-- Quick Step filter tags -->
                   <div style="display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; align-items: center; border-bottom: 1px solid #eee; padding-bottom: 6px;">
-                    <span style="font-size: 11px; color: #909399; margin-right: 4px;">กรองตาม Step:</span>
+                    <span style="font-size: var(--fs-xs); color: var(--c-info); margin-right: 4px;">กรองตาม Step:</span>
                     <el-tag
                       size="small"
                       :type="colSelectorStepFilter === null ? 'primary' : 'info'"
@@ -800,7 +800,7 @@
                     
                     <!-- Dynamic Step Select/Deselect buttons -->
                     <div v-if="colSelectorStepFilter !== null" style="display: flex; justify-content: space-between; align-items: center; background: #f0f9eb; padding: 4px 8px; border-radius: 4px;">
-                      <span style="font-size: 11px; color: #67c23a; font-weight: bold;">Step S{{ colSelectorStepFilter + 1 }} :</span>
+                      <span style="font-size: var(--fs-xs); color: var(--c-success); font-weight: bold;">Step S{{ colSelectorStepFilter + 1 }} :</span>
                       <div>
                         <el-button size="small" link type="success" style="font-weight: 600;" @click="selectAllInCurrentStep">เลือกทั้งหมดใน Step นี้</el-button>
                         <el-button size="small" link type="warning" style="font-weight: 600;" @click="clearAllInCurrentStep">ล้างทั้งหมดใน Step นี้</el-button>
@@ -809,7 +809,7 @@
 
                     <!-- Filtered Select/Deselect buttons (only shown when typing a search query) -->
                     <div v-if="colSelectorQuery" style="display: flex; justify-content: space-between; align-items: center; background: #ecf5ff; padding: 4px 8px; border-radius: 4px;">
-                      <span style="font-size: 11px; color: #409eff; font-weight: bold;">คำค้นหา :</span>
+                      <span style="font-size: var(--fs-xs); color: var(--c-primary); font-weight: bold;">คำค้นหา :</span>
                       <div>
                         <el-button size="small" link type="primary" style="font-weight: 600;" @click="showAllFilteredCols">เลือกตามที่กรอง</el-button>
                         <el-button size="small" link type="warning" style="font-weight: 600;" @click="hideAllFilteredCols">ซ่อนตามที่กรอง</el-button>
@@ -827,7 +827,7 @@
                                 style="transform: scale(0.85); display: inline-flex; margin-right: 4px; vertical-align: middle;">
                             S{{ getStepIdxForCol(col) + 1 }}
                           </span>
-                          <span style="font-size: 11px; font-family: monospace; vertical-align: middle;">{{ col }}</span>
+                          <span style="font-size: var(--fs-xs); font-family: monospace; vertical-align: middle;">{{ col }}</span>
                         </el-checkbox>
                       </div>
                     </el-checkbox-group>
@@ -879,7 +879,7 @@
                   link
                   size="small"
                   @click="clearAllCombinedFilters"
-                  style="font-size: 11px; font-weight: 600; padding: 0 4px;"
+                  style="font-size: var(--fs-xs); font-weight: 600; padding: 0 4px;"
                 >
                   ล้างตัวกรองทั้งหมด (Clear All)
                 </el-button>
@@ -995,11 +995,11 @@
           <!-- Card Header -->
           <div class="card-header" @click="setActiveStep(idx)">
             <div class="card-header-top">
-              <div class="card-step-badge" :style="step.total === 0 ? 'background: rgba(245, 108, 108, 0.2); border-color: rgba(245, 108, 108, 0.6); color: #f56c6c' : getCardStepBadgeStyle(idx)">{{ idx + 1 }}</div>
+              <div class="card-step-badge" :style="step.total === 0 ? 'background: rgba(245, 108, 108, 0.2); border-color: rgba(245, 108, 108, 0.6); color: var(--c-danger)' : getCardStepBadgeStyle(idx)">{{ idx + 1 }}</div>
               <div class="card-title-block">
                 <span class="card-table-name">
                   {{ step.tableLabel }}
-                  <span v-if="step._pivotFromStepIdx !== undefined && step._pivotFromStepIdx !== idx - 1" style="font-size: 11px; font-weight: normal; opacity: 0.6; color: #79bbff;">
+                  <span v-if="step._pivotFromStepIdx !== undefined && step._pivotFromStepIdx !== idx - 1" style="font-size: var(--fs-xs); font-weight: normal; opacity: 0.6; color: #79bbff;">
                     (from Step {{ step._pivotFromStepIdx + 1 }})
                   </span>
                 </span>
@@ -1075,7 +1075,7 @@
                         @change="(val) => toggleColumnVisibilityForStep(idx, col, val)"
                         size="small"
                       >
-                        <span style="font-size: 11px; font-family: monospace;">{{ col }}</span>
+                        <span style="font-size: var(--fs-xs); font-family: monospace;">{{ col }}</span>
                       </el-checkbox>
                     </div>
                   </div>
@@ -1132,7 +1132,7 @@
                   </el-button>
                   <template #dropdown>
                     <el-dropdown-menu>
-                      <el-dropdown-item disabled style="font-weight:bold;color:#606266;font-size:11px">
+                      <el-dropdown-item disabled style="font-weight:bold;color:var(--text-secondary);font-size: var(--fs-xs)">
                         ใช้คอลัมน์: {{ pivot.fromDbColumn }}
                       </el-dropdown-item>
                       <el-dropdown-item
@@ -1164,20 +1164,20 @@
           <div class="template-shortcuts-section" style="width: 100%;">
             <div class="section-title-row" style="text-align: center; margin-bottom: 20px;">
               <span class="shortcuts-badge">📊 เทมเพลตสืบค้นข้อมูล (Query Templates)</span>
-              <h2 style="font-size: 1.3rem; font-weight: 700; margin: 8px 0 4px 0; color: var(--text-primary);">โปรดเลือกเทมเพลตการสืบค้นที่ต้องการเรียกใช้</h2>
-              <p style="font-size: 0.82rem; color: var(--text-secondary);">เทมเพลตที่ได้รับการแชร์สิทธิ์เข้าใช้งานสำหรับบัญชีของท่าน (คลิกเพื่อเริ่มค้นหาทันที)</p>
+              <h2 style="font-size: var(--fs-xl); font-weight: 700; margin: 8px 0 4px 0; color: var(--text-primary);">โปรดเลือกเทมเพลตการสืบค้นที่ต้องการเรียกใช้</h2>
+              <p style="font-size: var(--fs-sm); color: var(--text-secondary);">เทมเพลตที่ได้รับการแชร์สิทธิ์เข้าใช้งานสำหรับบัญชีของท่าน (คลิกเพื่อเริ่มค้นหาทันที)</p>
             </div>
 
             <!-- Loading Templates -->
             <div v-if="loadingTemplates" style="text-align: center; padding: 20px 0;">
-              <el-icon class="is-loading" size="24" color="#409eff"><Loading /></el-icon>
-              <p style="font-size: 13px; color: #909399; margin-top: 8px;">กำลังโหลดรายชื่อเทมเพลต...</p>
+              <el-icon class="is-loading" size="24" color="var(--c-primary)"><Loading /></el-icon>
+              <p style="font-size: var(--fs-sm); color: var(--c-info); margin-top: 8px;">กำลังโหลดรายชื่อเทมเพลต...</p>
             </div>
 
             <!-- Templates Empty -->
             <div v-else-if="templates.length === 0" style="text-align: center; padding: 30px; background: rgba(0,0,0,0.01); border-radius: 12px; border: 1px dashed var(--border-color);">
-              <span style="font-size: 24px;">📭</span>
-              <p style="font-size: 13px; color: #909399; margin-top: 8px; font-weight: 500;">ยังไม่มีเทมเพลตที่ได้รับการแชร์สิทธิ์สำหรับท่านในขณะนี้</p>
+              <span style="font-size: var(--fs-xl);">📭</span>
+              <p style="font-size: var(--fs-sm); color: var(--c-info); margin-top: 8px; font-weight: 500;">ยังไม่มีเทมเพลตที่ได้รับการแชร์สิทธิ์สำหรับท่านในขณะนี้</p>
             </div>
 
             <!-- Template Grid -->
@@ -1217,8 +1217,8 @@
     <!-- Loading Overlay -->
     <el-dialog v-model="loading" :show-close="false" center width="320px" :close-on-click-modal="false">
       <div style="text-align:center;padding:20px">
-        <el-icon class="spin" size="48" color="#409eff"><Loading /></el-icon>
-        <p style="margin-top:16px;color:#606266;font-weight:500">{{ loadingText }}</p>
+        <el-icon class="spin" size="48" color="var(--c-primary)"><Loading /></el-icon>
+        <p style="margin-top:16px;color:var(--text-secondary);font-weight:500">{{ loadingText }}</p>
       </div>
     </el-dialog>
 
@@ -1299,12 +1299,12 @@
                 :value="item.en"
               />
             </el-select>
-            <div style="font-size: 11px; color: #909399; margin-top: 6px;">พิมพ์ชื่อหรือรหัสพนักงานเพื่อค้นหาแบบสด (Real-time Autocomplete) ดึงข้อมูลตรงจาก API personal ในระบบของเรา!</div>
+            <div style="font-size: var(--fs-xs); color: var(--c-info); margin-top: 6px;">พิมพ์ชื่อหรือรหัสพนักงานเพื่อค้นหาแบบสด (Real-time Autocomplete) ดึงข้อมูลตรงจาก API personal ในระบบของเรา!</div>
           </el-form-item>
         </el-form>
 
-        <div style="background: #f8f9fa; border: 1px solid #e4e7ed; border-radius: 8px; padding: 12px; font-size: 11px;">
-          <strong style="color: #409eff; display: block; margin-bottom: 6px;">⚙️ เลือกพารามิเตอร์สำหรับดึงข้อมูล (Select API Parameters):</strong>
+        <div style="background: #f8f9fa; border: 1px solid #e4e7ed; border-radius: 8px; padding: 12px; font-size: var(--fs-xs);">
+          <strong style="color: var(--c-primary); display: block; margin-bottom: 6px;">⚙️ เลือกพารามิเตอร์สำหรับดึงข้อมูล (Select API Parameters):</strong>
           <div style="margin-bottom: 8px;">ผู้ใช้ปลายทางสามารถส่ง Parameter เหล่านี้เพื่อสืบค้นข้อมูลผ่าน URL Query String ได้ (เช่น กรองตามวันที่ Date, S2_DATE, S3_DATE เป็นต้น):</div>
           
           <div style="display: flex; gap: 6px; margin-bottom: 8px;">
@@ -1329,19 +1329,19 @@
             />
           </el-select>
           <div style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center;">
-            <span style="color: #909399; font-weight: 600; margin-right: 4px;">พารามิเตอร์เปิดใช้งาน:</span>
+            <span style="color: var(--c-info); font-weight: 600; margin-right: 4px;">พารามิเตอร์เปิดใช้งาน:</span>
             <el-tag v-for="param in apiForm.selectedParams" :key="param" size="small" type="success" effect="dark" style="font-family: monospace;">
               {{ param }}
             </el-tag>
           </div>
         </div>
 
-        <div style="background: #fdf6ec; border: 1px solid #faecd8; border-radius: 8px; padding: 12px; font-size: 11px; color: #b88230;">
+        <div style="background: #fdf6ec; border: 1px solid #faecd8; border-radius: 8px; padding: 12px; font-size: var(--fs-xs); color: #b88230;">
           <strong>🔒 การจำกัดคอลัมน์ (Projection):</strong> Exporter จะดึงเฉพาะ <strong>{{ visibleCombinedCols.length }} คอลัมน์</strong> ที่คุณติ๊กเลือกไว้ใน Column Selector เท่านั้น!
         </div>
 
-        <div v-if="apiForm.id" style="background: #f0f9eb; border: 1px solid #e1f3d8; border-radius: 8px; padding: 12px; font-size: 11px; font-family: monospace;">
-          <strong style="color: #67c23a; display: block; margin-bottom: 4px;">cURL Call Preview:</strong>
+        <div v-if="apiForm.id" style="background: #f0f9eb; border: 1px solid #e1f3d8; border-radius: 8px; padding: 12px; font-size: var(--fs-xs); font-family: monospace;">
+          <strong style="color: var(--c-success); display: block; margin-bottom: 4px;">cURL Call Preview:</strong>
           <div style="word-break: break-all; white-space: pre-wrap; color: #555;">curl -X GET "http://localhost:9090/api/v1/trace/{{ apiForm.id }}?{{ apiForm.selectedParams[0] || 'param' }}=VALUE&format=csv"</div>
         </div>
       </div>
@@ -1360,7 +1360,7 @@
       width="780px"
       destroy-on-close
     >
-      <div style="margin-bottom: 12px; font-size: 13px; color: #606266; background: #ecf5ff; padding: 10px 14px; border-radius: 6px; border-left: 4px solid #409eff;">
+      <div style="margin-bottom: 12px; font-size: var(--fs-sm); color: var(--text-secondary); background: #ecf5ff; padding: 10px 14px; border-radius: 6px; border-left: 4px solid var(--c-primary);">
         💡 <strong>วิธีการใช้งาน:</strong> ระบบจะทำการจับคู่ SN/Lot ที่คุณวางกับ Regex Pattern จากบนลงล่าง และจะใช้ Rule แรกที่ match ทันที
         <br>
         • รองรับการวางหลายบรรทัด (Multi-value) โดยระบบจะเปลี่ยน Operator เป็น <strong>IN</strong> ให้โดยอัตโนมัติ
@@ -1368,7 +1368,7 @@
 
       <!-- 🛠️ เครื่องมือช่วยสร้าง Regex (Regex Generator Assistant) (Task 1.3 Update) -->
       <div style="background: #fffdf5; border: 1px solid #f5dab1; padding: 14px; border-radius: 8px; margin-bottom: 16px; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 2px 8px rgba(230,162,60,0.06);">
-        <span style="font-size: 13px; font-weight: bold; color: #b88230; display: flex; align-items: center; gap: 6px;">
+        <span style="font-size: var(--fs-sm); font-weight: bold; color: #b88230; display: flex; align-items: center; gap: 6px;">
           🪄 เครื่องมือช่วยสร้าง Regex จากตัวอย่างข้อมูล (No-Code Regex Generator)
         </span>
         <div style="display: flex; gap: 8px;">
@@ -1386,11 +1386,11 @@
         </div>
         
         <div v-if="regexSuggestions.length > 0" style="margin-top: 6px; display: flex; flex-direction: column; gap: 8px;">
-          <span style="font-size: 11px; color: #606266; font-weight: bold; display: block; border-bottom: 1px dashed #e4e7ed; padding-bottom: 4px;">🎯 ผลลัพธ์ตัวเลือก Regex (คลิกปุ่มเพื่อสร้าง Rule ทันที):</span>
-          <div v-for="(suggest, sIdx) in regexSuggestions" :key="sIdx" style="display: flex; align-items: center; justify-content: space-between; background: #ffffff; padding: 8px 12px; border-radius: 6px; border: 1px solid #ebeef5; font-size: 11px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); transition: all 0.2s ease;">
+          <span style="font-size: var(--fs-xs); color: var(--text-secondary); font-weight: bold; display: block; border-bottom: 1px dashed #e4e7ed; padding-bottom: 4px;">🎯 ผลลัพธ์ตัวเลือก Regex (คลิกปุ่มเพื่อสร้าง Rule ทันที):</span>
+          <div v-for="(suggest, sIdx) in regexSuggestions" :key="sIdx" style="display: flex; align-items: center; justify-content: space-between; background: #ffffff; padding: 8px 12px; border-radius: 6px; border: 1px solid #ebeef5; font-size: var(--fs-xs); box-shadow: 0 1px 3px rgba(0,0,0,0.02); transition: all 0.2s ease;">
             <div style="display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; padding-right: 12px;">
-              <span style="font-weight: 700; color: #e6a23c; font-size: 11px;">{{ suggest.label }}</span>
-              <code style="font-family: monospace; color: #303133; font-size: 12px; font-weight: 700; background: #f5f7fa; padding: 2px 6px; border-radius: 4px; border: 1px solid #e4e7ed; display: inline-block; width: fit-content; word-break: break-all;">{{ suggest.pattern }}</code>
+              <span style="font-weight: 700; color: var(--c-warning); font-size: var(--fs-xs);">{{ suggest.label }}</span>
+              <code style="font-family: monospace; color: var(--text-primary); font-size: var(--fs-sm); font-weight: 700; background: #f5f7fa; padding: 2px 6px; border-radius: 4px; border: 1px solid #e4e7ed; display: inline-block; width: fit-content; word-break: break-all;">{{ suggest.pattern }}</code>
             </div>
             <el-button type="success" size="small" plain @click="applyRegexToRules(suggest.pattern)" style="font-weight: bold;">
               ➕ ใช้ค่านี้สร้าง Rule ใหม่
@@ -1400,7 +1400,7 @@
       </div>
 
       <div class="rules-manager-list" style="max-height: 480px; overflow-y: auto; padding-right: 6px;">
-        <div v-if="quickPasteRules.length === 0" style="text-align: center; padding: 30px 0; color: #909399;">
+        <div v-if="quickPasteRules.length === 0" style="text-align: center; padding: 30px 0; color: var(--c-info);">
           ไม่มี Rules ที่ตั้งค่าไว้ กรุณาคลิกปุ่มเพิ่ม Rule ด้านล่าง
         </div>
         <div
@@ -1410,7 +1410,7 @@
           style="background: #fafafa; border: 1px solid #dcdfe6; border-radius: 8px; padding: 14px; margin-bottom: 12px; position: relative;"
         >
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
-            <span style="font-weight: bold; color: #303133; font-size: 14px;">Rule #{{ idx + 1 }}</span>
+            <span style="font-weight: bold; color: var(--text-primary); font-size: var(--fs-base);">Rule #{{ idx + 1 }}</span>
             <div style="display: flex; gap: 4px;">
               <el-button size="small" :disabled="idx === 0" @click="moveRuleUp(idx)">
                 ▲ ขึ้น
@@ -1427,13 +1427,13 @@
           <el-row :gutter="12">
             <el-col :span="8">
               <div style="margin-bottom: 8px;">
-                <span style="font-size: 12px; font-weight: bold; color: #606266; display: block; margin-bottom: 4px;">ชื่อ Rule</span>
+                <span style="font-size: var(--fs-sm); font-weight: bold; color: var(--text-secondary); display: block; margin-bottom: 4px;">ชื่อ Rule</span>
                 <el-input v-model="rule.name" placeholder="เช่น Hookup SN" size="small" />
               </div>
             </el-col>
             <el-col :span="16">
               <div style="margin-bottom: 8px;">
-                <span style="font-size: 12px; font-weight: bold; color: #606266; display: block; margin-bottom: 4px;">Regex Pattern</span>
+                <span style="font-size: var(--fs-sm); font-weight: bold; color: var(--text-secondary); display: block; margin-bottom: 4px;">Regex Pattern</span>
                 <el-input v-model="rule.pattern" placeholder="เช่น ^[A-Z]{3}\d{6}$" size="small" style="font-family: monospace;" />
               </div>
             </el-col>
@@ -1442,7 +1442,7 @@
           <el-row :gutter="12" style="margin-top: 8px;">
             <el-col :span="8">
               <div>
-                <span style="font-size: 12px; font-weight: bold; color: #606266; display: block; margin-bottom: 4px;">Target Table</span>
+                <span style="font-size: var(--fs-sm); font-weight: bold; color: var(--text-secondary); display: block; margin-bottom: 4px;">Target Table</span>
                 <el-select v-model="rule.table" size="small" style="width: 100%" @change="handleRuleTableChange(rule)">
                   <el-option-group
                     v-for="group in groupedTables"
@@ -1461,7 +1461,7 @@
             </el-col>
             <el-col :span="8">
               <div>
-                <span style="font-size: 12px; font-weight: bold; color: #606266; display: block; margin-bottom: 4px;">Target Column</span>
+                <span style="font-size: var(--fs-sm); font-weight: bold; color: var(--text-secondary); display: block; margin-bottom: 4px;">Target Column</span>
                 <el-select v-model="rule.column" size="small" style="width: 100%">
                   <el-option
                     v-for="col in (tablesMeta.find(t => t.key === rule.table)?.columns || [])"
@@ -1474,7 +1474,7 @@
             </el-col>
             <el-col :span="8">
               <div>
-                <span style="font-size: 12px; font-weight: bold; color: #606266; display: block; margin-bottom: 4px;">Operator (เมื่อเจอค่าเดียว)</span>
+                <span style="font-size: var(--fs-sm); font-weight: bold; color: var(--text-secondary); display: block; margin-bottom: 4px;">Operator (เมื่อเจอค่าเดียว)</span>
                 <el-select v-model="rule.operator" size="small" style="width: 100%">
                   <el-option value="like" label="LIKE" />
                   <el-option value="eq" label="Exact (=)" />
@@ -3105,8 +3105,11 @@ watch(combinedData, () => {
   colSuggestions.value = {};
 });
 
-// Premium Color Palette for dynamic step styling (Pastel bg + matching dark text & borders)
-const STEP_THEMES = [
+// Step color palette — pastel for light mode, muted-tinted for dark mode so
+// the color-coded table headers / step badges stay readable in both themes.
+// ponytail: dark tints are each hue mixed into near-black; text is the bright
+// hue so contrast holds on the dark navy card. Indexed cyclically by step.
+const STEP_THEMES_LIGHT = [
   { bg: '#e6f7ff', border: '#91d5ff', text: '#1890ff', badgeBg: '#bae7ff', badgeText: '#003a8c' }, // Step 1: soft blue
   { bg: '#f6ffed', border: '#b7eb8f', text: '#52c41a', badgeBg: '#d9f7be', badgeText: '#135200' }, // Step 2: soft green
   { bg: '#f9f0ff', border: '#d3adf7', text: '#722ed1', badgeBg: '#efdbff', badgeText: '#391085' }, // Step 3: soft purple
@@ -3116,6 +3119,20 @@ const STEP_THEMES = [
   { bg: '#fff1f0', border: '#ffa39e', text: '#f5222d', badgeBg: '#ffccc7', badgeText: '#5c0011' }, // Step 7: soft red
   { bg: '#f5f5f5', border: '#d9d9d9', text: '#595959', badgeBg: '#f0f0f0', badgeText: '#262626' }, // Step 8: soft grey/slate
 ];
+const STEP_THEMES_DARK = [
+  { bg: '#112240', border: '#2a4a7f', text: '#6ba3f9', badgeBg: '#1e3a5f', badgeText: '#c5d9fc' }, // Step 1: blue
+  { bg: '#0f2a1e', border: '#1f5a3a', text: '#4ade80', badgeBg: '#1a4030', badgeText: '#bbf7d0' }, // Step 2: green
+  { bg: '#1f1538', border: '#3f2a6b', text: '#a78bfa', badgeBg: '#2e2150', badgeText: '#ddd6fe' }, // Step 3: purple
+  { bg: '#2a2008', border: '#5a4515', text: '#fbbf24', badgeBg: '#3d3010', badgeText: '#fde68a' }, // Step 4: amber
+  { bg: '#08282a', border: '#14555a', text: '#2dd4bf', badgeBg: '#103838', badgeText: '#99f6e4' }, // Step 5: cyan
+  { bg: '#2e0f1f', border: '#5a1f3f', text: '#f472b6', badgeBg: '#401a2e', badgeText: '#fbcfe8' }, // Step 6: pink
+  { bg: '#2a0f10', border: '#5a1f22', text: '#f87171', badgeBg: '#3d1518', badgeText: '#fecaca' }, // Step 7: red
+  { bg: '#1a1f2b', border: '#2d3548', text: '#94a3b8', badgeBg: '#232a38', badgeText: '#cbd5e1' }, // Step 8: slate
+];
+function getStepTheme(idx) {
+  const palette = isDark.value ? STEP_THEMES_DARK : STEP_THEMES_LIGHT;
+  return palette[((idx % palette.length) + palette.length) % palette.length];
+}
 
 // Helper to check which step index a column in All Chains Combined table belongs to
 function getStepIdxForCol(colName) {
@@ -3126,7 +3143,7 @@ function getStepIdxForCol(colName) {
 // Generate style for the mini tag [S1], [S2] inside table header
 function getStepBadgeStyle(stepIdx) {
   if (stepIdx === undefined || stepIdx === null) return {};
-  const theme = STEP_THEMES[stepIdx % STEP_THEMES.length];
+  const theme = getStepTheme(stepIdx);
   return {
     backgroundColor: theme.badgeBg,
     color: theme.badgeText,
@@ -3150,11 +3167,11 @@ function combinedHeaderCellStyle({ column }) {
   if (!colName) return {};
   const stepIdx = getStepIdxForCol(colName);
   if (stepIdx !== undefined) {
-    const theme = STEP_THEMES[stepIdx % STEP_THEMES.length];
+    const theme = getStepTheme(stepIdx);
     return {
       backgroundColor: theme.bg,
       borderBottom: `2.5px solid ${theme.border}`,
-      color: '#262626',
+      color: theme.text,
       transition: 'all 0.3s ease',
     };
   }
@@ -3163,7 +3180,7 @@ function combinedHeaderCellStyle({ column }) {
 
 // Style for step badge in each pipeline card header
 function getCardStepBadgeStyle(idx) {
-  const theme = STEP_THEMES[idx % STEP_THEMES.length];
+  const theme = getStepTheme(idx);
   return {
     backgroundColor: theme.badgeBg,
     color: theme.badgeText,
@@ -3178,7 +3195,7 @@ function getCardStepBadgeStyle(idx) {
 // Accent border and glow for active/hover pipeline cards based on their step theme
 function getCardStyle(idx, step) {
   if (step.total === 0) return {};
-  const theme = STEP_THEMES[idx % STEP_THEMES.length];
+  const theme = getStepTheme(idx);
   if (idx === activeStepIndex.value) {
     return {
       borderColor: theme.text,
@@ -3193,7 +3210,7 @@ function getCardStyle(idx, step) {
 // Border, background and active glow for visual branching tree stepper nodes
 function getStepperNodeStyle(idx, step) {
   if (step.total === 0) return {};
-  const theme = STEP_THEMES[idx % STEP_THEMES.length];
+  const theme = getStepTheme(idx);
   if (idx === activeStepIndex.value) {
     return {
       borderColor: theme.text,
@@ -3210,7 +3227,7 @@ function getStepperNodeStyle(idx, step) {
 // Branch tags in visual stepper showing which parent step they came from
 function getBranchTagStyle(parentIdx) {
   if (parentIdx === null || parentIdx === undefined) return {};
-  const theme = STEP_THEMES[parentIdx % STEP_THEMES.length];
+  const theme = getStepTheme(parentIdx);
   return {
     backgroundColor: theme.badgeBg + ' !important',
     borderColor: theme.border + ' !important',
@@ -3515,9 +3532,9 @@ async function confirmSaveApi() {
   padding: 14px 0;
 }
 .header-brand      { display: flex; align-items: center; gap: 14px; }
-.header-icon       { font-size: 2rem; }
-.header-brand h1   { margin: 0; font-size: 1.3rem; font-weight: 700; }
-.header-brand p    { margin: 0; font-size: 0.78rem; opacity: 0.65; }
+.header-icon       { font-size: var(--fs-xl); }
+.header-brand h1   { margin: 0; font-size: var(--fs-lg); font-weight: 700; }
+.header-brand p    { margin: 0; font-size: var(--fs-sm); opacity: 0.65; }
 .header-stats      { display: flex; align-items: center; }
 
 /* Elegant Admin & Guest indicator pills */
@@ -3527,38 +3544,41 @@ async function confirmSaveApi() {
   gap: 8px;
   background: rgba(239, 68, 68, 0.08);
   border: 1px solid rgba(239, 68, 68, 0.22);
-  color: #ef4444;
+  color: var(--c-danger);
   padding: 6px 14px;
   border-radius: 9999px;
-  font-size: 0.74rem;
+  font-size: var(--fs-xs);
   font-weight: 700;
   margin-right: 12px;
   box-shadow: 0 2px 8px rgba(239, 68, 68, 0.03);
 }
 .admin-pill-indicator .logout-link-btn {
-  font-size: 0.7rem !important;
-  color: #ef4444 !important;
+  font-size: var(--fs-xs) !important;
+  color: var(--c-danger) !important;
   padding: 0 !important;
   margin-left: 4px;
   font-weight: 700;
 }
+/* ponytail: Viewer is read-only identity → neutral slate, not green.
+   Green collides with Export/Search "success" buttons; logout is a neutral
+   action, not a positive one. */
 .viewer-pill-indicator {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: rgba(16, 185, 129, 0.08);
-  border: 1px solid rgba(16, 185, 129, 0.22);
-  color: #10b981;
+  background: rgba(148, 163, 184, 0.08);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  color: var(--c-neutral);
   padding: 6px 14px;
   border-radius: 9999px;
-  font-size: 0.74rem;
+  font-size: var(--fs-xs);
   font-weight: 700;
   margin-right: 12px;
-  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.03);
+  box-shadow: 0 2px 8px rgba(148, 163, 184, 0.03);
 }
 .viewer-pill-indicator .logout-link-btn {
-  font-size: 0.7rem !important;
-  color: #10b981 !important;
+  font-size: var(--fs-xs) !important;
+  color: var(--c-neutral) !important;
   padding: 0 !important;
   margin-left: 4px;
   font-weight: 700;
@@ -3572,7 +3592,7 @@ async function confirmSaveApi() {
   color: #64748b;
   padding: 6px 14px;
   border-radius: 9999px;
-  font-size: 0.74rem;
+  font-size: var(--fs-xs);
   font-weight: 700;
   margin-right: 12px;
   cursor: pointer;
@@ -3618,9 +3638,9 @@ async function confirmSaveApi() {
 }
 
 .conditions-title {
-  font-size: 0.82rem;
+  font-size: var(--fs-sm);
   font-weight: 600;
-  color: #303133;
+  color: var(--text-primary);
 }
 
 .condition-row-card {
@@ -3651,7 +3671,7 @@ async function confirmSaveApi() {
 .condition-row-num {
   font-size: 0.75rem;
   font-weight: 700;
-  color: #909399;
+  color: var(--c-info);
 }
 
 .remove-cond-btn {
@@ -3668,9 +3688,9 @@ async function confirmSaveApi() {
 
 .field-label {
   display: block;
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   font-weight: 600;
-  color: #606266;
+  color: var(--text-secondary);
   margin-bottom: 4px;
 }
 
@@ -3685,7 +3705,7 @@ async function confirmSaveApi() {
 
 .combined-card {
   flex-shrink: 0;
-  border-color: #409eff;
+  border-color: var(--c-primary);
   box-shadow: 0 4px 20px rgba(64, 158, 255, 0.16);
 }
 
@@ -3711,11 +3731,11 @@ async function confirmSaveApi() {
   position: relative;
 }
 .pipeline-card--chain-loading {
-  border-color: #409eff;
+  border-color: var(--c-primary);
   box-shadow: 0 6px 22px rgba(64,158,255,0.20);
 }
 .pipeline-card--chain-error {
-  border: 2px solid #f56c6c;
+  border: 2px solid var(--c-danger);
   box-shadow: 0 6px 22px rgba(245,108,108,0.18);
 }
 .chain-loading-overlay {
@@ -3728,7 +3748,7 @@ async function confirmSaveApi() {
   justify-content: center;
   gap: 10px;
   font-weight: 600;
-  color: #409eff;
+  color: var(--c-primary);
   z-index: 5;
   border-radius: 14px;
 }
@@ -3737,15 +3757,15 @@ async function confirmSaveApi() {
   box-shadow: 0 6px 22px rgba(64,158,255,0.14);
 }
 .pipeline-card--active {
-  border-color: #409eff;
+  border-color: var(--c-primary);
   box-shadow: 0 6px 26px rgba(64,158,255,0.24);
 }
 .pipeline-card--empty {
-  border: 2px dashed #f56c6c;
+  border: 2px dashed var(--c-danger);
   box-shadow: 0 4px 14px rgba(245,108,108,0.06);
 }
 .pipeline-card--empty:hover {
-  border-color: #f56c6c;
+  border-color: var(--c-danger);
   box-shadow: 0 6px 22px rgba(245,108,108,0.12);
 }
 .pipeline-card--empty .card-header {
@@ -3773,11 +3793,11 @@ async function confirmSaveApi() {
   border: 1.5px solid rgba(255,255,255,0.45);
   border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  font-size: 0.78rem; font-weight: 700; flex-shrink: 0;
+  font-size: var(--fs-sm); font-weight: 700; flex-shrink: 0;
 }
 .card-title-block { display: flex; flex-direction: column; gap: 1px; overflow: hidden; flex: 1; }
-.card-table-name  { font-weight: 700; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.card-row-count   { font-size: 0.72rem; opacity: 0.72; }
+.card-table-name  { font-weight: 700; font-size: var(--fs-base); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-row-count   { font-size: var(--fs-xs); opacity: 0.72; }
 .filtered-label   { color: #ffd04b; }
 
 .card-chip {
@@ -3785,7 +3805,7 @@ async function confirmSaveApi() {
   background: rgba(255,255,255,0.12);
   border-radius: 20px; padding: 3px 10px;
   width: fit-content; max-width: 100%;
-  font-size: 0.72rem; overflow: hidden;
+  font-size: var(--fs-xs); overflow: hidden;
 }
 .chip-col { color: rgba(255,255,255,0.6); }
 .chip-op  { color: #79bbff; font-weight: 600; }
@@ -3803,7 +3823,7 @@ async function confirmSaveApi() {
 }
 .pivot-label {
   font-size: 0.68rem; font-weight: 700;
-  color: #909399; text-transform: uppercase;
+  color: var(--c-info); text-transform: uppercase;
   letter-spacing: 0.5px; margin-bottom: 7px;
 }
 .pivot-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -3835,7 +3855,7 @@ async function confirmSaveApi() {
   width: 100%;
 }
 .range-separator {
-  color: #909399;
+  color: var(--c-info);
   font-weight: bold;
   margin: 0 4px;
 }
@@ -3859,19 +3879,19 @@ async function confirmSaveApi() {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 0.8rem;
-  color: #e6a23c;
+  font-size: var(--fs-sm);
+  color: var(--c-warning);
   flex: 1;
   min-width: 0;
 }
-.notice-icon { font-size: 1rem; }
+.notice-icon { font-size: var(--fs-md); }
 .notice-title { font-weight: 700; flex-shrink: 0; }
 .notice-inline-text {
   opacity: 0.85;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 0.76rem;
+  font-size: var(--fs-sm);
 }
 .notice-bar-details {
   margin-top: 10px;
@@ -3881,8 +3901,8 @@ async function confirmSaveApi() {
 .precaution-list {
   margin: 0;
   padding-left: 18px;
-  font-size: 0.74rem;
-  color: #606266;
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
   line-height: 1.55;
   display: flex;
   flex-direction: column;
@@ -3892,7 +3912,7 @@ async function confirmSaveApi() {
   margin-bottom: 0;
 }
 .precaution-list strong {
-  color: #303133;
+  color: var(--text-primary);
 }
 
 /* ── Horizontal Visual Chain Progress Stepper ───────────────────────────────── */
@@ -3911,13 +3931,13 @@ async function confirmSaveApi() {
   margin-bottom: 12px;
 }
 .stepper-title {
-  font-size: 0.85rem;
+  font-size: var(--fs-sm);
   font-weight: 700;
   color: #e6e8eb;
 }
 .stepper-hint {
-  font-size: 0.72rem;
-  color: #909399;
+  font-size: var(--fs-xs);
+  color: var(--c-info);
 }
 .stepper-flow {
   display: flex;
@@ -3940,33 +3960,33 @@ async function confirmSaveApi() {
 }
 .stepper-node:hover {
   background: rgba(255,255,255,0.08);
-  border-color: #409eff;
+  border-color: var(--c-primary);
   transform: translateY(-1px);
 }
 .stepper-node-remove-btn {
   margin-left: auto;
   color: rgba(255, 255, 255, 0.4) !important;
-  font-size: 0.85rem !important;
+  font-size: var(--fs-sm) !important;
   padding: 2px !important;
   transition: all 0.2s ease !important;
   z-index: 2;
 }
 .stepper-node-remove-btn:hover {
-  color: #f56c6c !important;
+  color: var(--c-danger) !important;
   transform: scale(1.2);
 }
 .pipeline-card-remove-btn {
   color: rgba(255, 255, 255, 0.6) !important;
-  font-size: 0.9rem !important;
+  font-size: var(--fs-base) !important;
   transition: all 0.2s ease !important;
 }
 .pipeline-card-remove-btn:hover {
-  color: #f56c6c !important;
+  color: var(--c-danger) !important;
   transform: scale(1.2);
 }
 .stepper-node--active {
   background: rgba(64,158,255,0.08);
-  border-color: #409eff;
+  border-color: var(--c-primary);
   box-shadow: 0 0 12px rgba(64,158,255,0.25);
 }
 .stepper-node--empty {
@@ -3974,7 +3994,7 @@ async function confirmSaveApi() {
   background: rgba(245,108,108,0.02);
 }
 .stepper-node--empty:hover {
-  border-color: #f56c6c;
+  border-color: var(--c-danger);
 }
 /* Chain step still loading (placeholder waiting for search/pivot result) */
 .stepper-node--loading {
@@ -3984,24 +4004,24 @@ async function confirmSaveApi() {
   animation: stepperNodePulse 1.4s ease-in-out infinite;
 }
 .stepper-node--loading:hover {
-  border-color: #409eff;
+  border-color: var(--c-primary);
 }
 .stepper-node--loading .node-num {
-  color: #409eff;
+  color: var(--c-primary);
 }
 @keyframes stepperNodePulse {
   0%, 100% { box-shadow: 0 0 0 rgba(64, 158, 255, 0); }
   50% { box-shadow: 0 0 12px rgba(64, 158, 255, 0.35); }
 }
 .node-status-text.loading {
-  color: #409eff;
+  color: var(--c-primary);
   font-weight: 600;
   display: inline-flex;
   align-items: center;
   gap: 4px;
 }
 .node-badge {
-  font-size: 1rem;
+  font-size: var(--fs-md);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4020,13 +4040,13 @@ async function confirmSaveApi() {
 .node-num {
   font-size: 0.68rem;
   font-weight: 700;
-  color: #409eff;
+  color: var(--c-primary);
 }
 .stepper-node--empty .node-num {
-  color: #f56c6c;
+  color: var(--c-danger);
 }
 .node-label {
-  font-size: 0.8rem;
+  font-size: var(--fs-sm);
   font-weight: 700;
   color: #e6e8eb;
   white-space: nowrap;
@@ -4035,26 +4055,26 @@ async function confirmSaveApi() {
   max-width: 110px;
 }
 .node-details {
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
 }
 .node-status-text.success {
-  color: #67c23a;
+  color: var(--c-success);
   font-weight: 600;
 }
 .node-status-text.success.rows--filtered {
-  color: #e6a23c;
+  color: var(--c-warning);
 }
 .node-status-text.error {
-  color: #f56c6c;
+  color: var(--c-danger);
   font-weight: 700;
 }
 .stepper-connector {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #409eff;
+  color: var(--c-primary);
   font-weight: bold;
-  font-size: 1.1rem;
+  font-size: var(--fs-lg);
 }
 
 /* ── Stepper Tree Flow Layout ─────────────────────────────────────────── */
@@ -4087,9 +4107,9 @@ async function confirmSaveApi() {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #409eff;
+  color: var(--c-primary);
   font-weight: bold;
-  font-size: 1.2rem;
+  font-size: var(--fs-lg);
   padding: 0 4px;
 }
 
@@ -4112,7 +4132,7 @@ async function confirmSaveApi() {
 }
 
 .node-branch-tag {
-  font-size: 10px !important;
+  font-size: var(--fs-xs) !important;
   height: 18px !important;
   line-height: 16px !important;
   padding: 0 6px !important;
@@ -4142,14 +4162,14 @@ async function confirmSaveApi() {
 }
 
 .key-icon {
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
 }
 
 .chip-join-key {
   margin-left: auto;
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: bold;
-  color: #67c23a;
+  color: var(--c-success);
   background: rgba(103, 194, 58, 0.1);
   border: 1px solid rgba(103, 194, 58, 0.2);
   padding: 2px 6px;
@@ -4168,8 +4188,8 @@ async function confirmSaveApi() {
 
 .tooltip-title {
   font-weight: 700;
-  font-size: 0.78rem;
-  color: #409eff;
+  font-size: var(--fs-sm);
+  color: var(--c-primary);
   margin-bottom: 8px;
   display: flex;
   align-items: center;
@@ -4182,7 +4202,7 @@ async function confirmSaveApi() {
   display: flex;
   justify-content: space-between;
   gap: 16px;
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   line-height: 1.4;
   margin-bottom: 4px;
 }
@@ -4215,7 +4235,7 @@ async function confirmSaveApi() {
 }
 
 .tooltip-row.highlight-row .val-key {
-  color: #67c23a;
+  color: var(--c-success);
   font-weight: 700;
 }
 
@@ -4229,7 +4249,7 @@ async function confirmSaveApi() {
 
 .custom-axis-select :deep(.el-input__wrapper):hover {
   background-color: rgba(255, 255, 255, 0.1) !important;
-  border-color: #409eff !important;
+  border-color: var(--c-primary) !important;
 }
 
 .custom-axis-select :deep(.el-input__inner) {
@@ -4250,7 +4270,7 @@ async function confirmSaveApi() {
   50% {
     transform: scale(1.025);
     box-shadow: 0 8px 30px rgba(64, 158, 255, 0.35);
-    border-color: #409eff;
+    border-color: var(--c-primary);
   }
   100% {
     transform: scale(1);
@@ -4283,22 +4303,22 @@ async function confirmSaveApi() {
   display: flex;
   gap: 12px;
   background: #fdf6ec;
-  border-left: 4px solid #e6a23c;
+  border-left: 4px solid var(--c-warning);
   padding: 12px 16px;
   border-radius: 8px;
 }
 .export-warning-banner .warning-icon {
-  font-size: 1.4rem;
+  font-size: var(--fs-xl);
 }
 .export-warning-banner strong {
-  color: #e6a23c;
-  font-size: 0.88rem;
+  color: var(--c-warning);
+  font-size: var(--fs-base);
   display: block;
   margin-bottom: 4px;
 }
 .export-warning-banner p {
   margin: 0;
-  font-size: 0.78rem;
+  font-size: var(--fs-sm);
   color: #8c6f3d;
   line-height: 1.4;
 }
@@ -4309,9 +4329,9 @@ async function confirmSaveApi() {
   gap: 8px;
 }
 .section-title {
-  font-size: 0.82rem;
+  font-size: var(--fs-sm);
   font-weight: 700;
-  color: #606266;
+  color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -4354,11 +4374,11 @@ async function confirmSaveApi() {
   background: var(--bg-hover);
 }
 .sheet-select-item.is-selected {
-  border-color: #409eff;
+  border-color: var(--c-primary);
   background: var(--bg-current-row);
 }
 .sheet-select-item.combined-item.is-selected {
-  border-color: #409eff;
+  border-color: var(--c-primary);
   background: var(--bg-current-row);
 }
 .sheet-select-item.is-empty {
@@ -4366,7 +4386,7 @@ async function confirmSaveApi() {
 }
 
 .sheet-icon {
-  font-size: 1.2rem;
+  font-size: var(--fs-lg);
 }
 .sheet-info {
   display: flex;
@@ -4374,13 +4394,13 @@ async function confirmSaveApi() {
   gap: 2px;
 }
 .sheet-label {
-  font-size: 0.85rem;
+  font-size: var(--fs-sm);
   font-weight: 600;
-  color: #303133;
+  color: var(--text-primary);
 }
 .sheet-count {
   font-size: 0.75rem;
-  color: #909399;
+  color: var(--c-info);
 }
 
 .export-summary-box {
@@ -4394,31 +4414,31 @@ async function confirmSaveApi() {
 .summary-row {
   display: flex;
   justify-content: space-between;
-  font-size: 0.82rem;
-  color: #606266;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
 }
 .summary-row strong {
-  font-size: 0.9rem;
+  font-size: var(--fs-base);
 }
 .summary-status-badge {
   margin-top: 6px;
   padding: 8px;
   border-radius: 6px;
-  font-size: 0.78rem;
+  font-size: var(--fs-sm);
   text-align: center;
   font-weight: 600;
 }
 .badge-success {
   background: #e1f3d8;
-  color: #67c23a;
+  color: var(--c-success);
 }
 .badge-warning {
   background: #faecd8;
-  color: #e6a23c;
+  color: var(--c-warning);
 }
 .badge-danger {
   background: #fde2e2;
-  color: #f56c6c;
+  color: var(--c-danger);
 }
 
 .dialog-footer {
@@ -4474,12 +4494,12 @@ async function confirmSaveApi() {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
 }
 .format-card.is-selected {
-  border-color: #409eff;
+  border-color: var(--c-primary);
   background: var(--bg-current-row);
   box-shadow: 0 4px 14px rgba(64, 158, 255, 0.15);
 }
 .format-card.is-selected .format-extension {
-  color: #409eff;
+  color: var(--c-primary);
 }
 .format-card-header {
   display: flex;
@@ -4488,7 +4508,7 @@ async function confirmSaveApi() {
   margin-bottom: 6px;
 }
 .format-extension {
-  font-size: 1.1rem;
+  font-size: var(--fs-lg);
   font-weight: 700;
   color: var(--text-secondary);
   font-family: monospace;
@@ -4502,12 +4522,12 @@ async function confirmSaveApi() {
 }
 .format-badge.recommended {
   background: #ecf5ff;
-  color: #409eff;
+  color: var(--c-primary);
   border: 1px solid #b3d8ff;
 }
 .format-badge.instant {
   background: #f0f9eb;
-  color: #67c23a;
+  color: var(--c-success);
   border: 1px solid #c2e7b0;
 }
 .format-card-body {
@@ -4517,12 +4537,12 @@ async function confirmSaveApi() {
   gap: 4px;
 }
 .format-card-body strong {
-  font-size: 0.82rem;
+  font-size: var(--fs-sm);
   color: var(--text-primary);
 }
 .format-card-body p {
   margin: 0;
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   color: var(--text-secondary);
   line-height: 1.35;
 }
@@ -4531,14 +4551,14 @@ async function confirmSaveApi() {
   transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
   border-color: rgba(230, 162, 60, 0.4) !important;
   background: rgba(230, 162, 60, 0.06) !important;
-  color: #e6a23c !important;
+  color: var(--c-warning) !important;
   font-weight: 600 !important;
 }
 .header-ph-btn:hover {
   transform: translateY(-1px);
   box-shadow: 0 0 10px rgba(230, 162, 60, 0.3);
   background: rgba(230, 162, 60, 0.15) !important;
-  border-color: #e6a23c !important;
+  border-color: var(--c-warning) !important;
 }
 
 /* Sidebar Philosophy Card */
@@ -4566,13 +4586,13 @@ async function confirmSaveApi() {
   border-bottom: 1px solid var(--border-color);
 }
 .ph-header-title {
-  font-size: 0.78rem;
+  font-size: var(--fs-sm);
   font-weight: 700;
   color: var(--text-secondary);
 }
 .ph-collapse-arrow {
-  font-size: 0.8rem;
-  color: #909399;
+  font-size: var(--fs-sm);
+  color: var(--c-info);
   transition: transform 0.2s ease;
 }
 .ph-collapse-arrow.is-active {
@@ -4580,7 +4600,7 @@ async function confirmSaveApi() {
 }
 .philosophy-sidebar-body {
   padding: 12px 14px;
-  font-size: 0.74rem;
+  font-size: var(--fs-xs);
   color: var(--text-secondary);
   line-height: 1.45;
   background: var(--bg-card);
@@ -4603,16 +4623,16 @@ async function confirmSaveApi() {
 }
 .ph-mini-badge.bad {
   background: #fff5f5;
-  color: #f56c6c;
+  color: var(--c-danger);
   border: 1.5px solid #ffe3e3;
 }
 .ph-mini-badge.good {
   background: #f0f9eb;
-  color: #67c23a;
+  color: var(--c-success);
   border: 1.5px solid #e1f3d8;
 }
 .ph-learn-more-btn {
-  font-size: 0.74rem;
+  font-size: var(--fs-xs);
   font-weight: bold;
 }
 
@@ -4631,11 +4651,11 @@ async function confirmSaveApi() {
 :deep(.philosophy-dialog .el-dialog__title) {
   color: white;
   font-weight: 700;
-  font-size: 1.3rem;
+  font-size: var(--fs-lg);
 }
 :deep(.philosophy-dialog .el-dialog__headerbtn .el-dialog__close) {
   color: white;
-  font-size: 1.35rem;
+  font-size: var(--fs-xl);
 }
 :deep(.philosophy-dialog .el-dialog__body) {
   padding: 28px !important;
@@ -4655,10 +4675,10 @@ async function confirmSaveApi() {
   background: linear-gradient(135deg, #f0f4f8, #e8f0fe);
   padding: 16px 20px;
   border-radius: 12px;
-  border-left: 5px solid #409eff;
+  border-left: 5px solid var(--c-primary);
 }
 .ph-intro-glowing-icon {
-  font-size: 2rem;
+  font-size: var(--fs-xl);
   background: white;
   padding: 8px 12px;
   border-radius: 50%;
@@ -4671,13 +4691,13 @@ async function confirmSaveApi() {
 }
 .ph-intro-text h3 {
   margin: 0 0 6px 0;
-  font-size: 1.1rem;
+  font-size: var(--fs-lg);
   font-weight: 700;
   color: #1a202c;
 }
 .ph-intro-text p {
   margin: 0;
-  font-size: 0.88rem;
+  font-size: var(--fs-base);
   color: #4a5568;
   line-height: 1.6;
 }
@@ -4725,18 +4745,18 @@ async function confirmSaveApi() {
 }
 .red-badge {
   background: #fde2e2;
-  color: #f56c6c;
+  color: var(--c-danger);
   border: 1px solid #fbc4c4;
 }
 .green-badge {
   background: #e1f3d8;
-  color: #67c23a;
+  color: var(--c-success);
   border: 1px solid #c2e7b0;
 }
 
 .ph-card-title {
   margin: 0 0 14px 0;
-  font-size: 1.05rem;
+  font-size: var(--fs-md);
   font-weight: 700;
   color: #2d3748;
 }
@@ -4747,7 +4767,7 @@ async function confirmSaveApi() {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  font-size: 0.85rem;
+  font-size: var(--fs-sm);
   color: #4a5568;
   line-height: 1.6;
 }
@@ -4767,7 +4787,7 @@ async function confirmSaveApi() {
 }
 .visual-title {
   display: block;
-  font-size: 0.9rem;
+  font-size: var(--fs-base);
   font-weight: 700;
   color: #4a5568;
   margin-bottom: 16px;
@@ -4805,7 +4825,7 @@ async function confirmSaveApi() {
   transform: translateX(-50%);
   background: #718096;
   color: white;
-  font-size: 0.7rem;
+  font-size: var(--fs-xs);
   font-weight: 700;
   width: 20px;
   height: 20px;
@@ -4816,42 +4836,42 @@ async function confirmSaveApi() {
   border: 1.5px solid white;
 }
 .ph-flow-item strong {
-  font-size: 0.85rem;
+  font-size: var(--fs-sm);
   color: #2d3748;
   margin-top: 4px;
   margin-bottom: 6px;
 }
 .ph-flow-item span {
-  font-size: 0.74rem;
+  font-size: var(--fs-xs);
   color: #718096;
   line-height: 1.35;
 }
 
 /* Custom styled step types */
 .filter-bg {
-  border-color: #e6a23c;
+  border-color: var(--c-warning);
   background: #fdfaf6;
 }
 .filter-bg .flow-num {
-  background: #e6a23c;
+  background: var(--c-warning);
 }
 .pivot-bg {
-  border-color: #67c23a;
+  border-color: var(--c-success);
   background: #f8fdf6;
 }
 .pivot-bg .flow-num {
-  background: #67c23a;
+  background: var(--c-success);
 }
 .combined-bg {
-  border-color: #409eff;
+  border-color: var(--c-primary);
   background: #f4f9ff;
 }
 .combined-bg .flow-num {
-  background: #409eff;
+  background: var(--c-primary);
 }
 
 .ph-flow-arrow {
-  font-size: 1.3rem;
+  font-size: var(--fs-lg);
   color: #a0aec0;
   font-weight: bold;
   user-select: none;
@@ -4866,8 +4886,8 @@ async function confirmSaveApi() {
   background: #ecf5ff;
   border-radius: 8px;
   padding: 10px 16px;
-  font-size: 0.82rem;
-  color: #409eff;
+  font-size: var(--fs-sm);
+  color: var(--c-primary);
   line-height: 1.5;
 }
 
@@ -4894,8 +4914,8 @@ async function confirmSaveApi() {
 }
 .col-filter-label {
   font-weight: 700;
-  font-size: 0.8rem;
-  color: #303133;
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4911,25 +4931,25 @@ async function confirmSaveApi() {
   transition: all 0.2s ease-in-out;
 }
 .col-filter-input :deep(.el-input__wrapper):hover {
-  border-color: #409eff;
+  border-color: var(--c-primary);
 }
 .col-filter-input :deep(.el-input__wrapper.is-focus) {
-  border-color: #409eff;
+  border-color: var(--c-primary);
   background-color: #ffffff;
   box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.1) !important;
 }
 .col-filter-input :deep(.el-input__inner) {
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   height: 24px;
   line-height: 24px;
-  color: #303133;
+  color: var(--text-primary);
 }
 .col-filter-input :deep(.el-input__inner)::placeholder {
   color: #c0c4cc;
   font-style: italic;
 }
 .col-filter-input :deep(.el-input__clear) {
-  font-size: 10px;
+  font-size: var(--fs-xs);
   line-height: 24px;
 }
 
@@ -4948,7 +4968,7 @@ async function confirmSaveApi() {
 }
 
 .active-filters-label {
-  font-size: 0.74rem;
+  font-size: var(--fs-xs);
   font-weight: 700;
   color: #5a6578;
 }
@@ -4963,7 +4983,7 @@ async function confirmSaveApi() {
 .filter-chip {
   border-radius: 6px;
   padding: 2px 8px;
-  font-size: 0.74rem;
+  font-size: var(--fs-xs);
   transition: all 0.2s ease;
   display: inline-flex;
   align-items: center;
@@ -4984,10 +5004,10 @@ async function confirmSaveApi() {
 }
 
 .preset-btn {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   padding: 2px 6px;
   background: #f4f4f5;
-  color: #606266;
+  color: var(--text-secondary);
   border-radius: 4px;
   cursor: pointer;
   border: 1px solid #dcdfe6;
@@ -4997,7 +5017,7 @@ async function confirmSaveApi() {
 
 .preset-btn:hover {
   background: #ecf5ff;
-  color: #409eff;
+  color: var(--c-primary);
   border-color: #c6e2ff;
 }
 
@@ -5027,14 +5047,14 @@ async function confirmSaveApi() {
 }
 
 .history-title {
-  font-size: 0.8rem;
+  font-size: var(--fs-sm);
   font-weight: 700;
-  color: #303133;
+  color: var(--text-primary);
 }
 
 .history-collapse-arrow {
-  font-size: 12px;
-  color: #909399;
+  font-size: var(--fs-sm);
+  color: var(--c-info);
   transition: transform 0.3s ease;
 }
 
@@ -5049,8 +5069,8 @@ async function confirmSaveApi() {
 }
 
 .history-empty {
-  font-size: 0.76rem;
-  color: #909399;
+  font-size: var(--fs-sm);
+  color: var(--c-info);
   text-align: center;
   padding: 10px 0;
 }
@@ -5075,16 +5095,16 @@ async function confirmSaveApi() {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 0.7rem;
+  font-size: var(--fs-xs);
 }
 
 .history-item-time {
-  color: #909399;
+  color: var(--c-info);
 }
 
 .history-item-table {
   font-weight: 700;
-  color: #409eff;
+  color: var(--c-primary);
   background: rgba(64, 158, 255, 0.1);
   padding: 1px 6px;
   border-radius: 4px;
@@ -5095,7 +5115,7 @@ async function confirmSaveApi() {
   flex-direction: column;
   gap: 2px;
   font-family: monospace;
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   background: #f4f4f5;
   padding: 4px 6px;
   border-radius: 4px;
@@ -5111,15 +5131,15 @@ async function confirmSaveApi() {
 
 .cond-col {
   font-weight: bold;
-  color: #409eff;
+  color: var(--c-primary);
 }
 
 .cond-op {
-  color: #e6a23c;
+  color: var(--c-warning);
 }
 
 .cond-val {
-  color: #67c23a;
+  color: var(--c-success);
 }
 
 .history-item-actions {
@@ -5145,9 +5165,9 @@ async function confirmSaveApi() {
 }
 
 .qp-title {
-  font-size: 0.78rem;
+  font-size: var(--fs-sm);
   font-weight: 700;
-  color: #303133;
+  color: var(--text-primary);
 }
 
 .qp-body {
@@ -5166,7 +5186,7 @@ async function confirmSaveApi() {
 }
 
 .qp-status {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   line-height: 1.5;
   display: block;
 }
@@ -5193,7 +5213,7 @@ async function confirmSaveApi() {
 }
 
 .rule-editor-card:hover {
-  border-color: #409eff !important;
+  border-color: var(--c-primary) !important;
   box-shadow: 0 2px 12px 0 rgba(64, 158, 255, 0.1);
 }
 
@@ -5217,7 +5237,7 @@ async function confirmSaveApi() {
 }
 
 .qp-route-option.is-active {
-  border-color: #67c23a;
+  border-color: var(--c-success);
   background: #f0f9eb;
 }
 
@@ -5234,7 +5254,7 @@ async function confirmSaveApi() {
 }
 
 .qp-route-option.is-active .qp-route-radio {
-  border-color: #67c23a;
+  border-color: var(--c-success);
 }
 
 .qp-radio-dot {
@@ -5246,21 +5266,21 @@ async function confirmSaveApi() {
 }
 
 .qp-route-option.is-active .qp-radio-dot {
-  background: #67c23a;
+  background: var(--c-success);
 }
 
 .qp-route-info {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   line-height: 1.3;
   text-align: left;
 }
 
 .qp-route-path {
-  color: #909399;
-  font-size: 10px;
+  color: var(--c-info);
+  font-size: var(--fs-xs);
 }
 
 .qp-route-option.is-active .qp-route-path {
@@ -5269,7 +5289,7 @@ async function confirmSaveApi() {
 
 /* ── High-Performance Drag & Drop & Upload Styles ── */
 .quick-paste-box.is-dragging {
-  border-color: #67c23a;
+  border-color: var(--c-success);
   box-shadow: 0 0 12px rgba(103, 194, 58, 0.2);
 }
 
@@ -5280,7 +5300,7 @@ async function confirmSaveApi() {
   right: 0;
   bottom: 0;
   background: rgba(255, 255, 255, 0.95);
-  border: 2px dashed #67c23a;
+  border: 2px dashed var(--c-success);
   border-radius: 8px;
   display: flex;
   align-items: center;
@@ -5306,7 +5326,7 @@ async function confirmSaveApi() {
 }
 
 .qp-drag-icon {
-  font-size: 28px;
+  font-size: var(--fs-xl);
   animation: qp-bounce 1s infinite alternate;
 }
 
@@ -5316,8 +5336,8 @@ async function confirmSaveApi() {
 }
 
 .qp-drag-sub {
-  font-size: 10px;
-  color: #909399;
+  font-size: var(--fs-xs);
+  color: var(--c-info);
 }
 
 .qp-file-loaded-banner {
@@ -5341,7 +5361,7 @@ async function confirmSaveApi() {
 }
 
 .qp-file-icon {
-  font-size: 20px;
+  font-size: var(--fs-lg);
 }
 
 .qp-file-meta {
@@ -5352,17 +5372,17 @@ async function confirmSaveApi() {
 }
 
 .qp-file-name {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: bold;
-  color: #303133;
+  color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .qp-file-count {
-  font-size: 10px;
-  color: #67c23a;
+  font-size: var(--fs-xs);
+  color: var(--c-success);
   font-weight: 600;
 }
 
@@ -5413,8 +5433,8 @@ async function confirmSaveApi() {
 }
 .shortcuts-badge {
   background: #f0f9eb;
-  color: #67c23a;
-  font-size: 0.76rem;
+  color: var(--c-success);
+  font-size: var(--fs-sm);
   font-weight: 700;
   padding: 6px 12px;
   border-radius: 20px;
@@ -5445,7 +5465,7 @@ async function confirmSaveApi() {
 }
 .template-card:hover {
   transform: translateY(-4px);
-  border-color: #409eff;
+  border-color: var(--c-primary);
   box-shadow: 0 10px 25px rgba(64, 158, 255, 0.12);
   background: var(--bg-card);
 }
@@ -5456,7 +5476,7 @@ async function confirmSaveApi() {
   margin-bottom: 12px;
 }
 .template-icon {
-  font-size: 24px;
+  font-size: var(--fs-xl);
   background: rgba(64, 158, 255, 0.1);
   padding: 6px;
   border-radius: 8px;
@@ -5470,19 +5490,19 @@ async function confirmSaveApi() {
   overflow: hidden;
 }
 .template-title {
-  font-size: 0.95rem;
+  font-size: var(--fs-base);
   font-weight: 700;
   color: var(--text-primary);
   margin: 0;
   line-height: 1.3;
 }
 .template-creator {
-  font-size: 0.7rem;
-  color: #909399;
+  font-size: var(--fs-xs);
+  color: var(--c-info);
   margin-top: 2px;
 }
 .template-desc {
-  font-size: 0.8rem;
+  font-size: var(--fs-sm);
   color: var(--text-secondary);
   line-height: 1.4;
   margin: 0 0 16px 0;
@@ -5502,9 +5522,9 @@ async function confirmSaveApi() {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   font-weight: 600;
-  color: #409eff;
+  color: var(--c-primary);
 }
 .chain-step-node .step-label {
   background: rgba(64, 158, 255, 0.08);
@@ -5512,23 +5532,28 @@ async function confirmSaveApi() {
   border-radius: 4px;
 }
 .chain-step-node .step-arrow {
-  color: #909399;
-  font-size: 0.65rem;
+  color: var(--c-info);
+  font-size: var(--fs-xs);
 }
 .template-card-action {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 0.78rem;
+  font-size: var(--fs-sm);
   font-weight: 700;
-  color: #409eff;
+  color: var(--c-primary);
   border-top: 1px solid var(--border-color);
-  padding-top: 12px;
-  margin-top: auto;
+  padding: var(--space-3) var(--space-2) var(--space-2);
+  margin: auto calc(var(--space-5) * -1) calc(var(--space-5) * -1);
+  border-radius: 0 0 12px 12px;
+  transition: background 0.2s ease;
 }
 .template-card-action .action-arrow {
-  font-size: 14px;
+  font-size: var(--fs-base);
   transition: transform 0.2s ease;
+}
+.template-card:hover .template-card-action {
+  background: rgba(59, 130, 246, 0.08);
 }
 .template-card:hover .template-card-action .action-arrow {
   transform: translateX(4px);

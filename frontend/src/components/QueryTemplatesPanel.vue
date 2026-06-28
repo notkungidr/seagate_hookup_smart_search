@@ -71,7 +71,7 @@
             @click="selectedStartStepIdx = i"
             :title="`เลือกเป็นจุดตั้งต้นในการรัน (Step ${i + 1})`"
           >
-            <span v-if="i > 0 && selectedTemplate.hops[i - 1]?.fromStepIdx !== undefined && selectedTemplate.hops[i - 1]?.fromStepIdx !== i - 1" style="background: rgba(114, 46, 209, 0.15); color: #722ed1; border: 1px solid rgba(114, 46, 209, 0.3); border-radius: 4px; padding: 0px 4px; font-size: 10px; font-weight: bold; margin-right: 4px;">⌥ S{{ selectedTemplate.hops[i - 1].fromStepIdx + 1 }}</span>
+            <span v-if="i > 0 && selectedTemplate.hops[i - 1]?.fromStepIdx !== undefined && selectedTemplate.hops[i - 1]?.fromStepIdx !== i - 1" style="background: rgba(114, 46, 209, 0.15); color: #722ed1; border: 1px solid rgba(114, 46, 209, 0.3); border-radius: 4px; padding: 0px 4px; font-size: var(--fs-xs); font-weight: bold; margin-right: 4px;">⌥ S{{ selectedTemplate.hops[i - 1].fromStepIdx + 1 }}</span>
             {{ tableLabel(t) }}
           </span>
           <span v-if="i < selectedTemplate.stepsChain.length - 1" class="qt-arrow">→</span>
@@ -296,7 +296,7 @@
               :value="item.en"
             />
           </el-select>
-          <div style="font-size: 11px; color: #909399; margin-top: 6px;">พิมพ์ชื่อหรือรหัสพนักงานเพื่อดึงข้อมูลตรงจากระบบฐานข้อมูล</div>
+          <div style="font-size: var(--fs-xs); color: var(--c-info); margin-top: 6px;">พิมพ์ชื่อหรือรหัสพนักงานเพื่อดึงข้อมูลตรงจากระบบฐานข้อมูล</div>
         </el-form-item>
         <el-form-item label="Interactive Flow Architect">
           <div class="fa-flow-container">
@@ -383,7 +383,7 @@
             <div class="qt-chain-pills qt-chain-pills--mini">
               <template v-for="(t, i) in tpl.stepsChain" :key="i">
                 <span class="qt-pill qt-pill--mini">
-                  <span v-if="i > 0 && tpl.hops[i - 1]?.fromStepIdx !== undefined && tpl.hops[i - 1]?.fromStepIdx !== i - 1" style="background: rgba(114, 46, 209, 0.15); color: #722ed1; border: 1px solid rgba(114, 46, 209, 0.3); border-radius: 3px; padding: 0px 3px; font-size: 9px; font-weight: bold; margin-right: 3px;">⌥ S{{ tpl.hops[i - 1].fromStepIdx + 1 }}</span>
+                  <span v-if="i > 0 && tpl.hops[i - 1]?.fromStepIdx !== undefined && tpl.hops[i - 1]?.fromStepIdx !== i - 1" style="background: rgba(114, 46, 209, 0.15); color: #722ed1; border: 1px solid rgba(114, 46, 209, 0.3); border-radius: 3px; padding: 0px 3px; font-size: var(--fs-xs); font-weight: bold; margin-right: 3px;">⌥ S{{ tpl.hops[i - 1].fromStepIdx + 1 }}</span>
                   {{ tableLabel(t) }}
                 </span>
                 <span v-if="i < tpl.stepsChain.length - 1" class="qt-arrow">→</span>
@@ -896,14 +896,14 @@ defineExpose({
 
 .qt-opt { display: flex; flex-direction: column; line-height: 1.2; padding: 2px 0; }
 .qt-opt-name  { font-weight: 600; }
-.qt-opt-chain { font-size: 11px; color: #909399; }
+.qt-opt-chain { font-size: var(--fs-xs); color: var(--c-info); }
 
 .qt-preview {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
-  font-size: 12px; color: #c0c4cc;
+  font-size: var(--fs-sm); color: #c0c4cc;
 }
 .qt-preview-label { font-weight: 600; color: #e6e8eb; }
-.qt-preview-desc  { font-style: italic; color: #909399; }
+.qt-preview-desc  { font-style: italic; color: var(--c-info); }
 
 .qt-chain-pills { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .qt-chain-pills--readonly { padding: 6px 10px; background: #161b27; border-radius: 6px; }
@@ -915,18 +915,18 @@ defineExpose({
   background: #2a3247;
   border: 1px solid #3a4565;
   border-radius: 12px;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: #d6d9e0;
 }
 .qt-pill--active-master {
-  background: #67c23a !important;
-  border-color: #67c23a !important;
+  background: var(--c-success) !important;
+  border-color: var(--c-success) !important;
   color: #ffffff !important;
   font-weight: bold;
   box-shadow: 0 0 10px rgba(103, 194, 58, 0.4);
 }
-.qt-pill--mini { font-size: 10px; padding: 1px 6px; }
-.qt-arrow { color: #67c23a; font-weight: 700; }
+.qt-pill--mini { font-size: var(--fs-xs); padding: 1px 6px; }
+.qt-arrow { color: var(--c-success); font-weight: 700; }
 
 .qt-list { display: flex; flex-direction: column; gap: 8px; padding: 4px 0; }
 .qt-list-item {
@@ -935,12 +935,12 @@ defineExpose({
 }
 .qt-list-main { flex: 1; min-width: 0; }
 .qt-list-name { font-weight: 600; color: #e6e8eb; }
-.qt-list-desc { font-size: 12px; color: #909399; margin-top: 2px; }
-.qt-list-meta { font-size: 11px; color: #606266; margin-top: 4px; }
+.qt-list-desc { font-size: var(--fs-sm); color: var(--c-info); margin-top: 2px; }
+.qt-list-meta { font-size: var(--fs-xs); color: var(--text-secondary); margin-top: 4px; }
 .qt-list-actions { display: flex; gap: 6px; align-items: flex-start; }
 
-.qt-empty { padding: 24px; text-align: center; color: #909399; }
-.qt-muted { color: #606266; font-style: italic; }
+.qt-empty { padding: 24px; text-align: center; color: var(--c-info); }
+.qt-muted { color: var(--text-secondary); font-style: italic; }
 
 /* ── Master Chain Conditions Card ─────────────────────────────────────── */
 .qt-master-card {
@@ -958,10 +958,10 @@ defineExpose({
   display: flex; align-items: flex-start; justify-content: space-between; gap: 8px;
 }
 .qt-master-title { display: flex; gap: 10px; align-items: flex-start; min-width: 0; }
-.qt-master-icon { font-size: 20px; line-height: 1; }
+.qt-master-icon { font-size: var(--fs-lg); line-height: 1; }
 .qt-master-title-text { min-width: 0; }
-.qt-master-name { font-size: 14px; font-weight: 700; color: #e6e8eb; }
-.qt-master-desc { font-size: 12px; color: #909399; margin-top: 2px; font-style: italic; }
+.qt-master-name { font-size: var(--fs-base); font-weight: 700; color: #e6e8eb; }
+.qt-master-desc { font-size: var(--fs-sm); color: var(--c-info); margin-top: 2px; font-style: italic; }
 
 .qt-chain-pills--master { padding: 6px 8px; background: rgba(0,0,0,0.18); border-radius: 6px; }
 
@@ -974,11 +974,11 @@ defineExpose({
   gap: 10px;
 }
 .qt-conditions-title {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   color: #e6e8eb;
 }
-.qt-conditions-sub { font-size: 11px; color: #909399; font-weight: 400; margin-left: 4px; }
+.qt-conditions-sub { font-size: var(--fs-xs); color: var(--c-info); font-weight: 400; margin-left: 4px; }
 
 .qt-condition-row {
   background: rgba(255,255,255,0.03);
@@ -992,7 +992,7 @@ defineExpose({
 .qt-condition-head {
   display: flex; justify-content: space-between; align-items: center;
 }
-.qt-condition-no { font-size: 11px; font-weight: 700; color: #67c23a; }
+.qt-condition-no { font-size: var(--fs-xs); font-weight: 700; color: var(--c-success); }
 .qt-condition-fields {
   display: flex;
   flex-direction: column;
@@ -1006,10 +1006,10 @@ defineExpose({
 }
 .qt-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .qt-field--value { width: 100%; }
-.qt-field-label { font-size: 11px; color: #909399; }
-.qt-in-count { font-size: 11px; color: #67c23a; margin-top: 2px; }
+.qt-field-label { font-size: var(--fs-xs); color: var(--c-info); }
+.qt-in-count { font-size: var(--fs-xs); color: var(--c-success); margin-top: 2px; }
 .qt-between-pair { display: flex; align-items: center; gap: 6px; }
-.qt-between-sep { color: #909399; font-weight: 600; }
+.qt-between-sep { color: var(--c-info); font-weight: 600; }
 
 .qt-master-actions {
   display: flex;
@@ -1020,7 +1020,7 @@ defineExpose({
   border-top: 1px solid rgba(255,255,255,0.06);
 }
 .qt-run-btn {
-  background: linear-gradient(135deg, #409eff 0%, #67c23a 100%) !important;
+  background: linear-gradient(135deg, var(--c-primary) 0%, var(--c-success) 100%) !important;
   border: none !important;
   font-weight: 600;
   box-shadow: 0 2px 10px rgba(64,158,255,0.30);
@@ -1054,12 +1054,12 @@ defineExpose({
 .fa-step-badge {
   display: inline-flex; align-items: center; justify-content: center;
   width: 26px; height: 26px; border-radius: 50%;
-  background: #303133; border: 1px solid #303133;
-  font-size: 11px; font-weight: 700; color: #ffffff; flex-shrink: 0;
+  background: var(--text-primary); border: 1px solid var(--text-primary);
+  font-size: var(--fs-xs); font-weight: 700; color: #ffffff; flex-shrink: 0;
 }
-.fa-step-badge--root { background: #67c23a; border-color: #67c23a; color: #ffffff; }
-.fa-step-label { font-size: 14px; font-weight: 700; color: #1f2d3d; flex: 1; }
-.fa-step-tag { font-size: 10px; font-weight: 700; color: #2f7c1d; background: rgba(103,194,58,0.15); border: 1px solid rgba(103,194,58,0.3); border-radius: 4px; padding: 2px 8px; }
+.fa-step-badge--root { background: var(--c-success); border-color: var(--c-success); color: #ffffff; }
+.fa-step-label { font-size: var(--fs-base); font-weight: 700; color: #1f2d3d; flex: 1; }
+.fa-step-tag { font-size: var(--fs-xs); font-weight: 700; color: #2f7c1d; background: rgba(103,194,58,0.15); border: 1px solid rgba(103,194,58,0.3); border-radius: 4px; padding: 2px 8px; }
 
 .fa-hop-row {
   display: flex;
@@ -1087,7 +1087,7 @@ defineExpose({
   flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
 }
 .fa-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.fa-label { font-size: 11px; font-weight: 700; color: #303133; }
+.fa-label { font-size: var(--fs-xs); font-weight: 700; color: var(--text-primary); }
 .fa-add-btn-wrapper {
   margin-top: 6px;
   padding-left: 36px;
@@ -1106,10 +1106,10 @@ defineExpose({
 }
 
 .preset-btn {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   padding: 2px 6px;
   background: #f4f4f5;
-  color: #606266;
+  color: var(--text-secondary);
   border-radius: 4px;
   cursor: pointer;
   border: 1px solid #dcdfe6;
@@ -1119,7 +1119,7 @@ defineExpose({
 
 .preset-btn:hover {
   background: #ecf5ff;
-  color: #409eff;
+  color: var(--c-primary);
   border-color: #c6e2ff;
 }
 </style>

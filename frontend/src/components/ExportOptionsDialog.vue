@@ -113,7 +113,7 @@
         </div>
         <div class="summary-row">
           <span>Total rows:</span>
-          <strong :style="totalSelectedRows > 1000000 ? 'color:#f56c6c' : (totalSelectedRows > 500000 ? 'color:#e6a23c' : 'color:#67c23a')">
+          <strong :style="totalSelectedRows > 1000000 ? 'color:var(--c-danger)' : (totalSelectedRows > 500000 ? 'color:var(--c-warning)' : 'color:var(--c-success)')">
             {{ totalSelectedRows.toLocaleString() }}
           </strong>
         </div>
@@ -173,32 +173,32 @@ defineEmits([
   display: flex;
   gap: 12px;
   background: #fdf6ec;
-  border-left: 4px solid #e6a23c;
+  border-left: 4px solid var(--c-warning);
   padding: 12px 16px;
   border-radius: 8px;
 }
 .warning-icon {
-  font-size: 1rem;
+  font-size: var(--fs-md);
   font-weight: 800;
-  color: #e6a23c;
+  color: var(--c-warning);
 }
 .export-warning-banner strong {
-  color: #e6a23c;
-  font-size: 0.88rem;
+  color: var(--c-warning);
+  font-size: var(--fs-base);
   display: block;
   margin-bottom: 4px;
 }
 .export-warning-banner p,
 .format-note {
   margin: 0;
-  font-size: 0.78rem;
+  font-size: var(--fs-sm);
   color: #8c6f3d;
   line-height: 1.4;
 }
 .section-title {
-  font-size: 0.82rem;
+  font-size: var(--fs-sm);
   font-weight: 700;
-  color: #606266;
+  color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -228,7 +228,7 @@ defineEmits([
   transform: translateY(-2px);
 }
 .format-card.is-selected {
-  border-color: #409eff;
+  border-color: var(--c-primary);
   background: #f2f8ff;
   box-shadow: 0 4px 14px rgba(64, 158, 255, 0.15);
 }
@@ -239,9 +239,9 @@ defineEmits([
   margin-bottom: 6px;
 }
 .format-extension {
-  font-size: 1.1rem;
+  font-size: var(--fs-lg);
   font-weight: 700;
-  color: #909399;
+  color: var(--c-info);
   font-family: monospace;
 }
 .format-badge {
@@ -253,22 +253,22 @@ defineEmits([
 }
 .format-badge.recommended {
   background: #ecf5ff;
-  color: #409eff;
+  color: var(--c-primary);
   border: 1px solid #b3d8ff;
 }
 .format-badge.instant {
   background: #f0f9eb;
-  color: #67c23a;
+  color: var(--c-success);
   border: 1px solid #c2e7b0;
 }
 .format-card-body strong {
-  font-size: 0.82rem;
-  color: #303133;
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
 }
 .format-card-body p {
   margin: 4px 0 0;
-  font-size: 0.72rem;
-  color: #909399;
+  font-size: var(--fs-xs);
+  color: var(--c-info);
   line-height: 1.35;
 }
 .preset-buttons {
@@ -302,7 +302,7 @@ defineEmits([
   background: #f5f7fa;
 }
 .sheet-select-item.is-selected {
-  border-color: #409eff;
+  border-color: var(--c-primary);
   background: #ecf5ff;
 }
 .sheet-select-item.is-empty {
@@ -312,7 +312,7 @@ defineEmits([
   width: 24px;
   text-align: center;
   font-weight: 700;
-  color: #409eff;
+  color: var(--c-primary);
 }
 .sheet-info {
   display: flex;
@@ -320,13 +320,13 @@ defineEmits([
   gap: 2px;
 }
 .sheet-label {
-  font-size: 0.85rem;
+  font-size: var(--fs-sm);
   font-weight: 600;
-  color: #303133;
+  color: var(--text-primary);
 }
 .sheet-count {
   font-size: 0.75rem;
-  color: #909399;
+  color: var(--c-info);
 }
 .export-summary-box {
   background: #f4f4f5;
@@ -339,28 +339,28 @@ defineEmits([
 .summary-row {
   display: flex;
   justify-content: space-between;
-  font-size: 0.82rem;
-  color: #606266;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
 }
 .summary-status-badge {
   margin-top: 6px;
   padding: 8px;
   border-radius: 6px;
-  font-size: 0.78rem;
+  font-size: var(--fs-sm);
   text-align: center;
   font-weight: 600;
 }
 .badge-success {
   background: #e1f3d8;
-  color: #67c23a;
+  color: var(--c-success);
 }
 .badge-warning {
   background: #faecd8;
-  color: #e6a23c;
+  color: var(--c-warning);
 }
 .badge-danger {
   background: #fde2e2;
-  color: #f56c6c;
+  color: var(--c-danger);
 }
 .dialog-footer {
   display: flex;

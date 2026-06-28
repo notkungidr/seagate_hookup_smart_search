@@ -329,7 +329,7 @@
                         :value="item.en"
                       />
                     </el-select>
-                    <div style="font-size: 11px; color: #909399; margin-top: 6px;">พิมพ์ชื่อหรือรหัสพนักงานเพื่อค้นหาแบบสด (Real-time Autocomplete) ดึงข้อมูลตรงจาก API personal ในระบบของเรา!</div>
+                    <div style="font-size: var(--fs-xs); color: var(--c-info); margin-top: 6px;">พิมพ์ชื่อหรือรหัสพนักงานเพื่อค้นหาแบบสด (Real-time Autocomplete) ดึงข้อมูลตรงจาก API personal ในระบบของเรา!</div>
                   </el-form-item>
                 </el-form>
               </div>
@@ -797,7 +797,7 @@ const requestBodyObj = computed(() => {
 }
 :deep(.api-manager-dialog .el-dialog__title) {
   font-weight: 700;
-  font-size: 1.25rem;
+  font-size: var(--fs-lg);
 }
 :deep(.api-manager-dialog .el-dialog__body) {
   padding: 0 !important; /* full height split sidebar */
@@ -827,8 +827,8 @@ const requestBodyObj = computed(() => {
 }
 .sidebar-header .title {
   font-weight: 700;
-  font-size: 0.9rem;
-  color: #303133;
+  font-size: var(--fs-base);
+  color: var(--text-primary);
 }
 .endpoints-list-wrapper {
   flex: 1;
@@ -846,7 +846,7 @@ const requestBodyObj = computed(() => {
 }
 .group-pill {
   cursor: pointer;
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   font-weight: 600;
   transition: all 0.18s ease;
 }
@@ -869,7 +869,7 @@ const requestBodyObj = computed(() => {
 .access-panel-card {
   background: white;
   border: 1px solid #e4e7ed;
-  border-left: 4px solid #e6a23c;
+  border-left: 4px solid var(--c-warning);
   border-radius: 12px;
   padding: 14px 18px;
   margin-bottom: 16px;
@@ -884,7 +884,7 @@ const requestBodyObj = computed(() => {
 .access-panel-header .title {
   font-weight: 700;
   font-size: 0.92rem;
-  color: #303133;
+  color: var(--text-primary);
 }
 .access-panel-body :deep(.el-form-item) {
   margin-bottom: 12px;
@@ -896,7 +896,7 @@ const requestBodyObj = computed(() => {
   align-items: flex-start;
   background: linear-gradient(135deg, #ecf5ff 0%, #f0f9eb 100%);
   border: 1px solid #d9ecff;
-  border-left: 4px solid #409eff;
+  border-left: 4px solid var(--c-primary);
   border-radius: 12px;
   padding: 16px 20px;
   margin-bottom: 18px;
@@ -915,7 +915,7 @@ const requestBodyObj = computed(() => {
 }
 .sandbox-hero-body p {
   margin: 0 0 10px 0;
-  font-size: 0.82rem;
+  font-size: var(--fs-sm);
   line-height: 1.5;
   color: #4a5568;
 }
@@ -936,14 +936,14 @@ const requestBodyObj = computed(() => {
   margin-bottom: 12px;
 }
 .empty-sidebar p {
-  font-size: 0.85rem;
+  font-size: var(--fs-sm);
   font-weight: 600;
-  color: #606266;
+  color: var(--text-secondary);
   margin: 0 0 6px 0;
 }
 .empty-sidebar .hint {
-  font-size: 0.72rem;
-  color: #909399;
+  font-size: var(--fs-xs);
+  color: var(--c-info);
   line-height: 1.4;
 }
 
@@ -961,7 +961,7 @@ const requestBodyObj = computed(() => {
 }
 .endpoint-item.active {
   background: #ecf5ff;
-  border-color: #409eff;
+  border-color: var(--c-primary);
 }
 .ep-item-header {
   display: flex;
@@ -971,31 +971,31 @@ const requestBodyObj = computed(() => {
 }
 .ep-name {
   font-weight: 700;
-  font-size: 0.82rem;
-  color: #303133;
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 190px;
 }
 .ep-method {
-  font-size: 0.65rem;
+  font-size: var(--fs-xs);
   font-weight: 800;
-  color: #409eff;
+  color: var(--c-primary);
   background: #ecf5ff;
   padding: 1px 6px;
   border-radius: 4px;
   border: 1px solid #d9ecff;
 }
 .ep-item-id {
-  font-size: 0.74rem;
+  font-size: var(--fs-xs);
   font-family: monospace;
-  color: #909399;
+  color: var(--c-info);
   margin-bottom: 4px;
 }
 .ep-item-desc {
-  font-size: 0.7rem;
-  color: #606266;
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
   line-height: 1.4;
   white-space: nowrap;
   overflow: hidden;
@@ -1017,23 +1017,23 @@ const requestBodyObj = computed(() => {
   justify-content: center;
   padding: 80px;
   text-align: center;
-  color: #909399;
+  color: var(--c-info);
 }
 .empty-details-icon {
   font-size: 3.5rem;
   margin-bottom: 16px;
 }
 .empty-details h3 {
-  font-size: 1.15rem;
+  font-size: var(--fs-lg);
   font-weight: 700;
-  color: #303133;
+  color: var(--text-primary);
   margin: 0 0 8px;
 }
 .empty-details p {
-  font-size: 0.85rem;
+  font-size: var(--fs-sm);
   max-width: 480px;
   line-height: 1.5;
-  color: #606266;
+  color: var(--text-secondary);
 }
 
 .details-inner {
@@ -1059,13 +1059,13 @@ const requestBodyObj = computed(() => {
 }
 .details-title-row h2 {
   margin: 0;
-  font-size: 1.2rem;
+  font-size: var(--fs-lg);
   font-weight: 700;
-  color: #303133;
+  color: var(--text-primary);
 }
 .ep-desc {
-  font-size: 0.82rem;
-  color: #606266;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
   margin: 0 0 12px 0;
   line-height: 1.5;
 }
@@ -1096,14 +1096,14 @@ const requestBodyObj = computed(() => {
 }
 
 .section-title {
-  font-size: 0.9rem;
+  font-size: var(--fs-base);
   font-weight: 700;
-  color: #303133;
+  color: var(--text-primary);
   margin-bottom: 4px;
 }
 .section-desc {
-  font-size: 0.76rem;
-  color: #909399;
+  font-size: var(--fs-sm);
+  color: var(--c-info);
   margin: 0 0 16px 0;
   line-height: 1.4;
 }
@@ -1113,8 +1113,8 @@ const requestBodyObj = computed(() => {
   border: 1px solid #d9ecff;
   border-radius: 8px;
   padding: 12px 16px;
-  font-size: 0.78rem;
-  color: #409eff;
+  font-size: var(--fs-sm);
+  color: var(--c-primary);
   line-height: 1.5;
 }
 
@@ -1132,9 +1132,9 @@ const requestBodyObj = computed(() => {
   margin-bottom: 0;
 }
 :deep(.params-form .el-form-item__label) {
-  font-size: 0.74rem;
+  font-size: var(--fs-xs);
   font-weight: 700;
-  color: #606266;
+  color: var(--text-secondary);
   padding-bottom: 4px;
 }
 
@@ -1147,8 +1147,8 @@ const requestBodyObj = computed(() => {
   margin-bottom: 16px;
   box-shadow: 0 2px 10px rgba(0,0,0,0.02);
 }
-.url-card.json-card { border-left: 4px solid #409eff; }
-.url-card.csv-card  { border-left: 4px solid #67c23a; }
+.url-card.json-card { border-left: 4px solid var(--c-primary); }
+.url-card.csv-card  { border-left: 4px solid var(--c-success); }
 .url-card.post-json-card { border-left: 4px solid #ea580c; }
 
 .url-header {
@@ -1165,11 +1165,11 @@ const requestBodyObj = computed(() => {
 }
 .format-badge.json {
   background: #ecf5ff;
-  color: #409eff;
+  color: var(--c-primary);
 }
 .format-badge.csv {
   background: #f0f9eb;
-  color: #67c23a;
+  color: var(--c-success);
 }
 .format-badge.post {
   background: #fff3cd;
@@ -1178,8 +1178,8 @@ const requestBodyObj = computed(() => {
 }
 .url-text {
   font-family: monospace;
-  font-size: 0.74rem;
-  color: #606266;
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
   word-break: break-all;
   display: block;
   background: #f8f9fa;
@@ -1193,7 +1193,7 @@ const requestBodyObj = computed(() => {
   margin-bottom: 8px;
 }
 .post-method {
-  font-size: 0.65rem;
+  font-size: var(--fs-xs);
   font-weight: 800;
   color: white;
   background: #ea580c;
@@ -1203,8 +1203,8 @@ const requestBodyObj = computed(() => {
 }
 .post-url-text {
   font-family: monospace;
-  font-size: 0.74rem;
-  color: #606266;
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
   word-break: break-all;
   display: block;
   background: #f8f9fa;
@@ -1218,7 +1218,7 @@ const requestBodyObj = computed(() => {
   background: #0f172a;
   color: #38bdf8;
   font-family: monospace;
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   border-radius: 6px;
   max-height: 180px;
   overflow-y: auto;
@@ -1250,12 +1250,12 @@ const requestBodyObj = computed(() => {
   align-items: center;
 }
 .console-header .title {
-  font-size: 0.78rem;
+  font-size: var(--fs-sm);
   font-weight: 700;
   color: #cbd5e0;
 }
 .console-status {
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   font-family: monospace;
   display: flex;
   align-items: center;
@@ -1277,7 +1277,7 @@ const requestBodyObj = computed(() => {
 }
 .console-sub-tabs :deep(.el-tabs__item) {
   color: #94a3b8;
-  font-size: 0.74rem;
+  font-size: var(--fs-xs);
   font-weight: 600;
   height: 32px;
 }
@@ -1296,7 +1296,7 @@ const requestBodyObj = computed(() => {
   --el-table-text-color: #ffffff !important;
   --el-table-header-text-color: #38bdf8 !important;
   --el-table-row-hover-bg-color: #2563eb !important;
-  font-size: 11px !important;
+  font-size: var(--fs-xs) !important;
   background-color: #0f172a !important;
 }
 
@@ -1341,7 +1341,7 @@ const requestBodyObj = computed(() => {
 .json-pre {
   margin: 0;
   font-family: monospace;
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   color: #38bdf8;
   max-height: 240px;
   overflow-y: auto;
@@ -1370,7 +1370,7 @@ const requestBodyObj = computed(() => {
   border-bottom: 1px solid #334155;
 }
 .code-box-header span {
-  font-size: 0.74rem;
+  font-size: var(--fs-xs);
   font-weight: 700;
   color: #cbd5e0;
 }
@@ -1380,7 +1380,7 @@ const requestBodyObj = computed(() => {
   max-height: 380px;
   overflow-y: auto;
   font-family: monospace;
-  font-size: 0.76rem;
+  font-size: var(--fs-sm);
   color: #38bdf8;
   line-height: 1.45;
 }

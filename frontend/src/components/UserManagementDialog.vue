@@ -386,7 +386,7 @@ function formatDateTime(isoStr) {
 
 .form-title {
   margin: 0 0 12px 0;
-  font-size: 0.95rem;
+  font-size: var(--fs-base);
   font-weight: 700;
   color: #1e293b;
 }
@@ -404,7 +404,7 @@ function formatDateTime(isoStr) {
 }
 
 :deep(.el-form-item__label) {
-  font-size: 0.76rem;
+  font-size: var(--fs-sm);
   font-weight: 700;
   color: #475569;
   padding-bottom: 4px;
@@ -424,7 +424,7 @@ function formatDateTime(isoStr) {
 
 .table-title {
   margin: 0;
-  font-size: 0.95rem;
+  font-size: var(--fs-base);
   font-weight: 700;
   color: #1e293b;
 }

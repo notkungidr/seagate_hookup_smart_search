@@ -243,7 +243,7 @@ async function handleLogin() {
 
 .login-header h3 {
   margin: 0 0 6px 0;
-  font-size: 1.6rem;
+  font-size: var(--fs-xl);
   font-weight: 800;
   color: #ffffff;
   letter-spacing: -0.02em;
@@ -251,13 +251,13 @@ async function handleLogin() {
 
 .login-header .subtitle {
   margin: 0;
-  font-size: 0.85rem;
+  font-size: var(--fs-sm);
   color: #94a3b8;
   font-weight: 500;
 }
 
 .login-form :deep(.el-form-item__label) {
-  font-size: 0.8rem;
+  font-size: var(--fs-sm);
   font-weight: 700;
   color: #cbd5e1;
   padding-bottom: 6px;
@@ -280,7 +280,7 @@ async function handleLogin() {
 
 .login-form :deep(.el-input__inner) {
   color: #ffffff !important;
-  font-size: 0.9rem;
+  font-size: var(--fs-base);
 }
 
 .login-form :deep(.el-input__inner::placeholder) {
@@ -296,7 +296,7 @@ async function handleLogin() {
   border: 1px solid rgba(16, 185, 129, 0.2);
   border-radius: 12px;
   padding: 12px 16px;
-  font-size: 0.76rem;
+  font-size: var(--fs-sm);
   color: #34d399;
   line-height: 1.5;
   margin-top: 10px;
@@ -324,7 +324,7 @@ async function handleLogin() {
   padding: 14px 20px !important;
   height: auto !important;
   font-weight: 700;
-  font-size: 0.95rem;
+  font-size: var(--fs-base);
   box-shadow: 0 4px 15px rgba(37, 99, 235, 0.4);
   transition: all 0.25s ease !important;
 }
@@ -347,7 +347,7 @@ async function handleLogin() {
 
 .login-footer p {
   margin: 0;
-  font-size: 0.74rem;
+  font-size: var(--fs-xs);
   color: #64748b;
   font-weight: 500;
 }
