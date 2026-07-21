@@ -87,6 +87,7 @@ export class PivotService {
     const exactColumnKey = Object.keys(tableMeta.columns).find(
       (k) => k.toLowerCase() === targetColumn.toLowerCase()
         || tableMeta.columns[k].dbColumn.toLowerCase() === targetColumn.toLowerCase()
+        || tableMeta.columns[k].label.toLowerCase() === targetColumn.toLowerCase()
     );
     if (!exactColumnKey) {
       throw new Error(`Target column "${targetColumn}" not found in table "${targetTable}"`);
@@ -469,6 +470,11 @@ export class PivotService {
   ): Promise<PivotResult> {
     const { targetTable, targetColumn } = params;
     const rawPool = getRawPool(connKey as any);
+
+    //console.log("###########################")
+    //console.log(rawPool['pool']);
+    //console.log("##########################")
+
     const dbTable = tableMeta.tableName;
     const allRows: Record<string, any>[] = [];
     const executedQueries: { sql: string; params: any[] }[] = [];
@@ -483,6 +489,7 @@ export class PivotService {
       const rawSql = `SELECT * FROM \`${dbTable}\` WHERE ${escapedCol} IN (${placeholders})`;
 
       console.log(`\n\x1b[36m╔══════════ [SQL Debug - RawPool Pivot (${connKey}) Batch ${Math.floor(i / BATCH_SIZE) + 1}] ══════════\x1b[0m`);
+       console.log(`\x1b[36m║\x1b[0m \x1b[1mConnection :\x1b[0m ${connKey}`);
       console.log(`\x1b[36m║\x1b[0m \x1b[1mDatabase:\x1b[0m ${connKey}`);
       console.log(`\x1b[36m║\x1b[0m \x1b[1mTable:\x1b[0m    ${dbTable}`);
       console.log(`\x1b[36m║\x1b[0m \x1b[1mSQL:\x1b[0m    \x1b[33m${rawSql}\x1b[0m`);

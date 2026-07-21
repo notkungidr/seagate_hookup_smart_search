@@ -45,6 +45,27 @@ async function resolveViewer(headers: Record<string, string | undefined>): Promi
   return { en: user.en, permission: user.permission };
 }
 
+/**
+ * Admission check for /v1/trace params. Prefix-aware: a `S<n>_col` param is
+ * admitted if allowedParams/rootColumns list either `S<n>_col` or the bare `col`
+ * (case-insensitive). The original param key is forwarded as-is so runChain can
+ * honor the step-pinning prefix.
+ */
+function paramMatchesAllowed(paramName: string, rootColumns: Set<string>, allowedList: string[]): boolean {
+  const pLower = paramName.toLowerCase();
+  const pPrefix = paramName.match(/^S(\d+)_(.+)$/i);
+  const pCore = pPrefix ? pPrefix[2].toLowerCase() : pLower;
+  if (rootColumns.has(pLower) || rootColumns.has(pCore)) return true;
+  if (allowedList.length === 0) return true;
+  return allowedList.some((p) => {
+    const eLower = p.toLowerCase();
+    if (eLower === pLower) return true;
+    const ePrefix = p.match(/^S(\d+)_(.+)$/i);
+    const eCore = ePrefix ? ePrefix[2].toLowerCase() : eLower;
+    return eLower === pCore || eCore === pCore;
+  });
+}
+
 // ── CORS & Swagger ─────────────────────────────────────────────────────────
 app.use(cors({
   origin: "*",
@@ -577,6 +598,7 @@ const apiRoutes = new Elysia()
   // Runs the full pivot chain for a saved endpoint (GET / Query Params)
   .get("/v1/trace/:id", async ({ params, query, headers, set }) => {
     try {
+      console.error(`[TRACE] GET /v1/trace/${params.id}`, query);
       const ep = await endpointService.getById(params.id);
       if (!ep) {
         set.status = 404;
@@ -603,24 +625,22 @@ const apiRoutes = new Elysia()
 
       for (const [paramName, paramValue] of Object.entries(searchParams)) {
         if (paramValue === undefined || paramValue === "") continue;
-        const isRootCol = rootColumns.has(paramName.toLowerCase());
-        const isAllowed = isRootCol || allowedList.length === 0 || allowedList.some(
-          (p) => p.toLowerCase() === paramName.toLowerCase()
-        );
-
-        if (isAllowed) {
-          const exactKey = allowedList.find((p) => p.toLowerCase() === paramName.toLowerCase()) ||
-            Array.from(rootColumns).find((p) => p.toLowerCase() === paramName.toLowerCase()) ||
-            paramName;
-          allowedSearchParams[exactKey] = paramValue;
+        // Forward the ORIGINAL key (preserves S<n>_ prefix so runChain can pin the step)
+        if (paramMatchesAllowed(paramName, rootColumns, allowedList)) {
+          allowedSearchParams[paramName] = paramValue;
         }
       }
 
       // 1. Run database chains
+      console.error(`[TRACE] runChain with params:`, allowedSearchParams);
       const result = await endpointService.runChain(ep.config, allowedSearchParams);
+      console.error(`[TRACE] runChain returned ${result.steps.length} steps`);
+      console.error(`[TRACE] Step row counts:`, result.steps.map((s, i) => `${i}:${s.rows.length}`).join(' '));
 
       // 2. Perform server-side left-join of all steps
+      console.error(`[TRACE] combineSteps starting...`);
       const combinedRows = endpointService.combineSteps(result.steps, ep.config);
+      console.error(`[TRACE] combineSteps returned ${combinedRows.length} rows`);
 
       // 3. Filter combined rows in-memory by query parameters (exact/substring/multi-value search with dynamic alias fallback)
       let filteredRows = combinedRows;
@@ -630,15 +650,14 @@ const apiRoutes = new Elysia()
         if (valList.length === 0) continue;
 
         filteredRows = filteredRows.filter((row) => {
-          let cellVal = row[paramName];
+          // Strip S<n>_ prefix from param name for row-key matching
+          const cleanParamName = paramName.replace(/^S\d+_/i, "");
+          let cellVal = row[cleanParamName];
           if (cellVal === undefined) {
-            // Case/underscore-insensitive key matching and prefix fallback
-            const normParam = paramName.toLowerCase().replace(/[^a-z0-9]/g, "");
+            // Case/underscore-insensitive key matching
+            const normParam = cleanParamName.toLowerCase().replace(/[^a-z0-9]/g, "");
             const foundKey = Object.keys(row).find(
-              (k) => {
-                const normK = k.toLowerCase().replace(/[^a-z0-9]/g, "");
-                return normK === normParam || normK.replace(/^s\d+/, "") === normParam;
-              }
+              (k) => k.toLowerCase().replace(/[^a-z0-9]/g, "") === normParam
             );
             if (foundKey) {
               cellVal = row[foundKey];
@@ -650,6 +669,7 @@ const apiRoutes = new Elysia()
           return valList.some(v => cellStr.includes(v) || v.includes(cellStr));
         });
       }
+      console.error(`[TRACE] After in-memory filter: ${filteredRows.length} rows`);
 
       if (format === "csv") {
         if (filteredRows.length === 0) {
@@ -731,24 +751,22 @@ const apiRoutes = new Elysia()
       }
 
       for (const [paramName, paramValue] of Object.entries(mergedParams)) {
-        const isRootCol = rootColumns.has(paramName.toLowerCase());
-        const isAllowed = isRootCol || allowedList.length === 0 || allowedList.some(
-          (p) => p.toLowerCase() === paramName.toLowerCase()
-        );
-
-        if (isAllowed) {
-          const exactKey = allowedList.find((p) => p.toLowerCase() === paramName.toLowerCase()) ||
-            Array.from(rootColumns).find((p) => p.toLowerCase() === paramName.toLowerCase()) ||
-            paramName;
-          allowedSearchParams[exactKey] = paramValue;
+        // Forward the ORIGINAL key (preserves S<n>_ prefix so runChain can pin the step)
+        if (paramMatchesAllowed(paramName, rootColumns, allowedList)) {
+          allowedSearchParams[paramName] = paramValue;
         }
       }
 
       // 1. Run database chains
+      console.error(`[TRACE] runChain with params:`, allowedSearchParams);
       const result = await endpointService.runChain(ep.config, allowedSearchParams);
+      console.error(`[TRACE] runChain returned ${result.steps.length} steps`);
+      console.error(`[TRACE] Step row counts:`, result.steps.map((s, i) => `${i}:${s.rows.length}`).join(' '));
 
       // 2. Perform server-side left-join of all steps
+      console.error(`[TRACE] combineSteps starting...`);
       const combinedRows = endpointService.combineSteps(result.steps, ep.config);
+      console.error(`[TRACE] combineSteps returned ${combinedRows.length} rows`);
 
       // 3. Filter combined rows in-memory by query parameters (exact/substring/multi-value search with dynamic alias fallback)
       let filteredRows = combinedRows;
@@ -758,15 +776,14 @@ const apiRoutes = new Elysia()
         if (valList.length === 0) continue;
 
         filteredRows = filteredRows.filter((row) => {
-          let cellVal = row[paramName];
+          // Strip S<n>_ prefix from param name for row-key matching
+          const cleanParamName = paramName.replace(/^S\d+_/i, "");
+          let cellVal = row[cleanParamName];
           if (cellVal === undefined) {
-            // Case/underscore-insensitive key matching and prefix fallback
-            const normParam = paramName.toLowerCase().replace(/[^a-z0-9]/g, "");
+            // Case/underscore-insensitive key matching
+            const normParam = cleanParamName.toLowerCase().replace(/[^a-z0-9]/g, "");
             const foundKey = Object.keys(row).find(
-              (k) => {
-                const normK = k.toLowerCase().replace(/[^a-z0-9]/g, "");
-                return normK === normParam || normK.replace(/^s\d+/, "") === normParam;
-              }
+              (k) => k.toLowerCase().replace(/[^a-z0-9]/g, "") === normParam
             );
             if (foundKey) {
               cellVal = row[foundKey];

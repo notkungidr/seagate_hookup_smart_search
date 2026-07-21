@@ -208,6 +208,9 @@ export function getDb(key: DbKey): ReturnType<typeof drizzle> {
     poolOptions.database = cfg.database;
   }
 
+  // ponytail: debug log — ลบออกเมื่อหาสาเหตุ access denied เจอแล้ว
+  console.log(`[DB Pool] init "${key}" → host=${cfg.host} user=${cfg.user} db=${cfg.database ?? "(none)"}`);
+
   const pool = mysql.createPool(poolOptions);
   const wrappedPool = wrapPoolWithTimeout(pool, QUERY_TIMEOUT_MS);
 

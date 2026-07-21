@@ -2635,11 +2635,21 @@ async function onPivotSelect(stepIdx, pivot, link) {
   const sourceStep = chainSteps.value[stepIdx];
   if (!sourceStep) return;
 
+  console.log("DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD")
+  console.log(stepIdx);
+  console.log(pivot);
+  console.log(link);
+  console.log("DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD")
+
   const sourceDbColumn = pivot.fromDbColumn;
   const sourceValues = [...new Set(getFilteredRows(stepIdx)
     .map((row) => row[sourceDbColumn])
     .filter((value) => value !== null && value !== undefined && value !== '')
     .map((value) => String(value).trim()))];
+
+  console.log("DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD")
+  console.log(sourceValues);
+  console.log("DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD")
 
   if (!sourceValues.length) {
     ElMessage.warning(`No values found in "${pivot.fromColumnLabel}" (${sourceDbColumn}) for pivot.`);
@@ -3313,7 +3323,24 @@ const apiParameterOptions = computed(() => {
       }
     });
   }
-  
+
+  // 1b. Downstream step columns (S<n>_ prefix = DB query pinned to step n).
+  //     The backend runChain honors the prefix to seed that step, then pivots both
+  //     directions (template-style trace) — the "ย้อนไปย้อนมา" capability.
+  chainSteps.value.forEach((step, idx) => {
+    if (idx === 0) return; // root already covered above
+    const stepTableKey = step.targetTable || step.table;
+    const stepLabel = step.tableLabel || stepTableKey;
+    const cols = tablesMeta.value.find(t => t.key === stepTableKey)?.columns || [];
+    cols.filter(c => c.searchable).forEach(c => {
+      const val = `S${idx + 1}_${c.key}`;
+      if (!added.has(val)) {
+        added.add(val);
+        options.push({ value: val, label: `${val} — ${c.label} (Step ${idx + 1}: ${stepLabel} • Database Query ⚡)` });
+      }
+    });
+  });
+
   // 2. All combined columns (with prefix, for grid-level filtering)
   combinedCols.value.forEach(col => {
     if (!added.has(col)) {
@@ -3465,7 +3492,7 @@ async function confirmSaveApi() {
         rootTable: firstStep.targetTable || firstStep.table,
         rootColumn: firstStep.columnLabel,
         rootOperator: firstStep.operator,
-        rootConditions: [],
+        rootConditions,
         hops,
         visibleCols: [...visibleCombinedCols.value],
         allowedParams: [...apiForm.value.selectedParams],

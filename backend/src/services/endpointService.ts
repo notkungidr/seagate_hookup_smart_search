@@ -19,7 +19,6 @@ export interface EndpointConfig {
     targetColumn: string;
     parentStepIdx?: number; // 0-based index in steps array; defaults to idx-1 if absent
   }[];
-  paramBindings?: { stepIndex: number; column: string; paramName: string }[];
   visibleCols?: string[];
   allowedParams?: string[];
 }
@@ -278,15 +277,17 @@ export class EndpointService {
   }
 
   /**
-   * Execute the full pivot chain defined in config, injecting queryParams into
-   * rootConditions (or paramBindings if defined).
-   * Returns { steps: [{ table, label, rows }[]] }
+   * Execute the pivot chain as a BFS graph (template-style): each hop is an edge,
+   * and any edge whose parent OR child is resolved can fire — forward OR backward.
+   * Runtime params seed one or more steps; a `S<n>_col` param pins step n-1.
+   * Returns { steps: [{ table, label, rows, availablePivots? }] } (dense, index-ordered
+   * so combineSteps can look up hops positionally).
    */
   async runChain(
     config: EndpointConfig,
     queryParams: Record<string, string>
   ): Promise<{ steps: { table: string; label: string; rows: Record<string, any>[]; availablePivots?: any[] }[] }> {
-    const steps: { table: string; label: string; rows: Record<string, any>[]; availablePivots?: any[] }[] = [];
+    const totalSteps = config.hops.length + 1;
 
     const isDateColumn = (colName: string): boolean => {
       const normalized = colName.toLowerCase();
@@ -296,258 +297,191 @@ export class EndpointService {
       return normalized.includes('date') || normalized.includes('time') || normalized.includes('crdt') || normalized === 'reg' || normalized === 'upd';
     };
 
-    // 1. Separate query parameters into Root Filters and Downstream Filters
-    // Exclude default template date filters (like reg >= '2026-05-25') unless explicitly passed in queryParams
-    let rootConditions: SearchCondition[] = config.rootConditions
-      ? config.rootConditions
-          .map(c => ({ ...c }))
-          .filter(c => {
-            const clean = c.column.replace(/^s\d+_/i, "");
-            const isDate = isDateColumn(clean);
-            if (!isDate) return true; // Keep permanent static constraints (e.g. customer = 'Seagate:ACA')
-            
-            const hasParam = Object.keys(queryParams).some(
-              k => k.replace(/^s\d+_/i, "").toLowerCase() === clean.toLowerCase() &&
-                   queryParams[k] !== undefined && queryParams[k] !== ""
-            );
-            return hasParam;
-          })
-      : [];
+    // ── 1. Parse params into per-step seeds (honor S<n>_ prefix) ───────────────
+    const seedsByStep: Record<number, SearchCondition[]> = {};
+    const addSeed = (stepIdx: number, cond: SearchCondition) => {
+      if (!seedsByStep[stepIdx]) seedsByStep[stepIdx] = [];
+      seedsByStep[stepIdx].push(cond);
+    };
 
-    const downstreamFilters: { stepIdx: number; cleanParam: string; value: string }[] = [];
+    // Fold static config.rootConditions into step 0 (drop date filters unless a matching param arrived)
+    const rootConditions: SearchCondition[] = (config.rootConditions || [])
+      .map(c => ({ ...c }))
+      .filter(c => {
+        const clean = c.column.replace(/^s\d+_/i, "");
+        if (!isDateColumn(clean)) return true;
+        return Object.keys(queryParams).some(
+          k => k.replace(/^s\d+_/i, "").toLowerCase() === clean.toLowerCase() &&
+               queryParams[k] !== undefined && queryParams[k] !== ""
+        );
+      });
+    rootConditions.forEach(c => addSeed(0, c));
+
+    // No-prefix param → detect step by scanning columns (root first). -1 if unknown.
+    const findStepWithColumn = (cleanCol: string): number => {
+      const rootMeta = getTableMeta(config.rootTable);
+      if (rootMeta && Object.keys(rootMeta.columns).some(k => k.toLowerCase() === cleanCol.toLowerCase() || rootMeta.columns[k].dbColumn.toLowerCase() === cleanCol.toLowerCase())) {
+        return 0;
+      }
+      for (let j = 0; j < config.hops.length; j++) {
+        const hopMeta = getTableMeta(config.hops[j].targetTable);
+        if (hopMeta && Object.keys(hopMeta.columns).some(k => k.toLowerCase() === cleanCol.toLowerCase() || hopMeta.columns[k].dbColumn.toLowerCase() === cleanCol.toLowerCase())) {
+          return j + 1;
+        }
+      }
+      return -1;
+    };
+
+    const buildSeedCond = (stepIdx: number, colKey: string, paramValue: string): SearchCondition => {
+      const meta = getTableMeta(this.stepTable(config, stepIdx));
+      const matched = meta
+        ? Object.keys(meta.columns).find(k => k.toLowerCase() === colKey.toLowerCase() || meta.columns[k].dbColumn.toLowerCase() === colKey.toLowerCase())
+        : undefined;
+      const exactKey = matched || colKey;
+      const isSearchable = matched ? meta!.columns[matched].searchable !== false : true;
+      const hasMultiple = paramValue.includes("\n") || paramValue.includes(",");
+      return {
+        column: exactKey,
+        operator: hasMultiple ? "in" : (isSearchable ? "like" : "eq"),
+        value: paramValue,
+        values: hasMultiple ? paramValue.split(/[\n,]+/).map(v => v.trim()).filter(Boolean) : undefined,
+      };
+    };
 
     for (const [paramName, paramValue] of Object.entries(queryParams)) {
       if (paramValue === undefined || paramValue === "") continue;
 
-      // Normalize prefix e.g., "S3_spool1_no" -> "spool1_no"
-      const cleanParam = paramName.replace(/^s\d+_/i, "");
+      const prefixMatch = paramName.match(/^S(\d+)_(.+)$/i);
+      let stepIdx: number;
+      let colKey: string;
 
-      // Check where this parameter belongs (Step 0 is Root, Step 1..N is Hop targetTable)
-      let foundStepIdx = -1;
-      const rootMeta = getTableMeta(config.rootTable);
-      if (rootMeta && Object.keys(rootMeta.columns).some(k => k.toLowerCase() === cleanParam.toLowerCase() || rootMeta.columns[k].dbColumn.toLowerCase() === cleanParam.toLowerCase())) {
-        foundStepIdx = 0;
+      if (prefixMatch) {
+        stepIdx = Number(prefixMatch[1]) - 1;
+        colKey = prefixMatch[2];
+        if (stepIdx < 0 || stepIdx >= totalSteps) {
+          throw new Error(`Parameter "${paramName}" targets nonexistent step ${stepIdx + 1} (chain has ${totalSteps} step(s)).`);
+        }
+        const meta = getTableMeta(this.stepTable(config, stepIdx));
+        if (!meta || !Object.keys(meta.columns).some(k => k.toLowerCase() === colKey.toLowerCase() || meta.columns[k].dbColumn.toLowerCase() === colKey.toLowerCase() || meta.columns[k].label.toLowerCase() === colKey.toLowerCase())) {
+          throw new Error(`Parameter "${paramName}": column "${colKey}" not found on step ${stepIdx + 1} table.`);
+        }
       } else {
-        for (let j = 0; j < config.hops.length; j++) {
-          const hopMeta = getTableMeta(config.hops[j].targetTable);
-          if (hopMeta && Object.keys(hopMeta.columns).some(k => k.toLowerCase() === cleanParam.toLowerCase() || hopMeta.columns[k].dbColumn.toLowerCase() === cleanParam.toLowerCase())) {
-            foundStepIdx = j + 1;
-            break;
-          }
-        }
+        colKey = paramName.replace(/^s\d+_/i, "");
+        stepIdx = findStepWithColumn(colKey);
+        if (stepIdx === -1) continue; // unknown column — skip (allowlist should have filtered)
       }
 
-      if (foundStepIdx > 0) {
-        // Belongs to downstream step! Save to sweep later
-        downstreamFilters.push({ stepIdx: foundStepIdx, cleanParam, value: paramValue });
-      } else if (foundStepIdx === 0) {
-        // Belongs to Root Table! Process immediately as root condition
-        const hasMultiple = paramValue.includes("\n") || paramValue.includes(",");
-        
-        // Resolve exact registry key for root condition and check if searchable (supports LIKE)
-        let exactRootKey = cleanParam;
-        let isSearchable = true; // Default to true
-        if (rootMeta) {
-          const matched = Object.keys(rootMeta.columns).find(k => k.toLowerCase() === cleanParam.toLowerCase() || rootMeta.columns[k].dbColumn.toLowerCase() === cleanParam.toLowerCase());
-          if (matched) {
-            exactRootKey = matched;
-            isSearchable = rootMeta.columns[matched].searchable !== false;
-          }
-        }
-
-        const op = hasMultiple ? "in" : (isSearchable ? "like" : "eq");
-
-        const existing = rootConditions.find(c => c.column.toLowerCase() === exactRootKey.toLowerCase());
-        if (existing) {
-          existing.value = paramValue;
-          existing.operator = op;
-          if (hasMultiple) existing.values = paramValue.split(/[\n,]+/).map(v => v.trim()).filter(Boolean);
-        } else {
-          rootConditions.push({
-            column: exactRootKey,
-            operator: op,
-            value: paramValue,
-            values: hasMultiple ? paramValue.split(/[\n,]+/).map(v => v.trim()).filter(Boolean) : undefined,
-          });
-        }
-      }
-    }
-
-    // 2. PHASE 1 & 2: Perform Two-Phase Filter Sweep on each Downstream Filter
-    for (const filter of downstreamFilters) {
-      console.log(`🧹 [Filter Sweep] Sweeping downstream filter: ${filter.cleanParam} = ${filter.value} on Step ${filter.stepIdx}`);
-      
-      let sweptKeys: string[] = [];
-      let currentStepIdx = filter.stepIdx;
-
-      // Initial Sweep: Select targetColumn from Step K
-      const hopIn = config.hops[currentStepIdx - 1];
-      const targetResult = await searchService.search({
-        table: hopIn.targetTable,
-        column: filter.cleanParam,
-        value: filter.value,
-        operator: "eq",
-        limit: 500, // Safe maximum swept keys to prevent IN overflow
-      });
-
-      // Extract target join column values using Display Label
-      const childMeta = getTableMeta(hopIn.targetTable);
-      let targetLabel = hopIn.targetColumn;
-      if (childMeta) {
-        const exactKey = Object.keys(childMeta.columns).find(
-          k => k.toLowerCase() === hopIn.targetColumn.toLowerCase() ||
-               childMeta.columns[k].dbColumn.toLowerCase() === hopIn.targetColumn.toLowerCase()
-        );
-        if (exactKey) targetLabel = childMeta.columns[exactKey].label;
-      }
-
-      sweptKeys = [...new Set(targetResult.rows.map(r => String(r[targetLabel] ?? "")).filter(Boolean))];
-
-      if (sweptKeys.length === 0) {
-        console.log(`🧹 [Filter Sweep] No keys resolved on Step ${currentStepIdx}. Bailing out chain query.`);
-        return { steps: [] };
-      }
-
-      // Backward Propagation Loop from Step K-1 down to 1
-      for (let j = currentStepIdx - 1; j >= 1; j--) {
-        const hopCurrent = config.hops[j];     // joins Step j (parent) to Step j+1 (child)
-        const hopPrev = config.hops[j - 1];    // joins Step j-1 to Step j
-        
-        const joinColPrev = hopPrev.targetColumn; // column on Step j joining backwards
-        const joinColNext = hopCurrent.fromColumnKey; // column on Step j joining forwards
-
-        if (joinColPrev.toLowerCase() === joinColNext.toLowerCase()) {
-          // Columns are identical, propagate keys without DB query
-          console.log(`🧹 [Filter Sweep] Column match (${joinColPrev}) at Step ${j}, skipping query.`);
-          continue;
-        }
-
-        // Translation query needed on Step j (which is hopPrev.targetTable)
-        console.log(`🧹 [Filter Sweep] Translating ${joinColNext} ➔ ${joinColPrev} on Step ${j}...`);
-        const translationResult = await pivotService.pivot({
-          sourceValues: sweptKeys,
-          targetTable: hopPrev.targetTable,
-          targetColumn: joinColNext,
-          limit: 500,
-        });
-
-        // Extract backward join values using resolved Display Label
-        const stepMeta = getTableMeta(hopPrev.targetTable);
-        let prevLabel = joinColPrev;
-        if (stepMeta) {
-          const exactKey = Object.keys(stepMeta.columns).find(
-            k => k.toLowerCase() === joinColPrev.toLowerCase() ||
-                 stepMeta.columns[k].dbColumn.toLowerCase() === joinColPrev.toLowerCase()
-          );
-          if (exactKey) prevLabel = stepMeta.columns[exactKey].label;
-        }
-
-        sweptKeys = [...new Set(translationResult.rows.map(r => String(r[prevLabel] ?? "")).filter(Boolean))];
-        
-        if (sweptKeys.length === 0) {
-          console.log(`🧹 [Filter Sweep] Propagation broke at Step ${j}. Bailing out chain query.`);
-          return { steps: [] };
-        }
-      }
-
-      // Final Root Injection: Inject resolved sweptKeys into Root Table's connection column!
-      const rootHop = config.hops[0];
-      const rootInjectCol = rootHop.fromColumnKey; // e.g. "lot_coil"
-      console.log(`🧹 [Filter Sweep] PHASE 3: Injecting ${sweptKeys.length} keys into Root Table: ${rootInjectCol}`);
-      
-      const existing = rootConditions.find(c => c.column.toLowerCase() === rootInjectCol.toLowerCase());
+      const cond = buildSeedCond(stepIdx, colKey, paramValue);
+      const existing = (seedsByStep[stepIdx] || []).find(c => c.column.toLowerCase() === cond.column.toLowerCase());
       if (existing) {
-        const existingValues = existing.values ?? (existing.value ? [existing.value] : []);
-        const intersection = existingValues.filter(v => sweptKeys.includes(v));
-        console.log(`🧹 [Filter Sweep] Intersecting keys: ${existingValues.length} AND ${sweptKeys.length} ➔ ${intersection.length}`);
-        
-        if (intersection.length === 0) {
-          console.log("🧹 [Filter Sweep] Intersection is empty. Bailing out chain query.");
-          return { steps: [] };
-        }
-        existing.operator = "in";
-        existing.values = intersection;
-        existing.value = "";
+        existing.value = cond.value;
+        existing.operator = cond.operator;
+        if (cond.values) existing.values = cond.values;
       } else {
-        rootConditions.push({
-          column: rootInjectCol,
-          operator: "in",
-          value: "",
-          values: sweptKeys,
-        });
+        addSeed(stepIdx, cond);
       }
     }
 
-    if (rootConditions.length === 0) {
+    if (Object.keys(seedsByStep).length === 0) {
       throw new Error("No search conditions provided. Pass query parameters matching column keys.");
     }
 
-    const loggedConditions = rootConditions.map(c => {
-      if (c.values && c.values.length > 20) {
-        return {
-          ...c,
-          values: `[${c.values.length} items: ${JSON.stringify(c.values.slice(0, 5))}...]`
-        };
-      }
-      return c;
-    });
-    console.log("🔍 [runChain] Final Root Conditions evaluated:", JSON.stringify(loggedConditions, null, 2));
+    // ── 2. Seed each step that has params ──────────────────────────────────────
+    const stepRows: Record<number, Record<string, any>[]> = {};
+    const stepInfo: Record<number, { table: string; label: string; availablePivots?: any[] }> = {};
+    const resolved = new Set<number>();
 
-    // Step 0: root search
-    const rootResult = await searchService.search({
-      table: config.rootTable,
-      conditions: rootConditions,
-      limit: 1000000,
-    });
-    steps.push({
-      table: config.rootTable,
-      label: rootResult.tableLabel,
-      rows: rootResult.rows,
-      availablePivots: rootResult.availablePivots,
-    });
-
-    // Subsequent hops
-    for (let i = 0; i < config.hops.length; i++) {
-      const hop = config.hops[i];
-      const parentIdx = hop.parentStepIdx ?? i;
-      const parentStep = steps[parentIdx];
-      const parentRows = parentStep ? parentStep.rows : [];
-
-      // Extract source values from parent step using resolved Display Label (since rows are mapped)
-      const parentTableMeta = getTableMeta(parentStep.table);
-      let fromLabel = hop.fromColumnKey;
-      if (parentTableMeta) {
-        const exactKey = Object.keys(parentTableMeta.columns).find(
-          (k) => k.toLowerCase() === hop.fromColumnKey.toLowerCase() ||
-                 parentTableMeta.columns[k].dbColumn.toLowerCase() === hop.fromColumnKey.toLowerCase() ||
-                 parentTableMeta.columns[k].label.toLowerCase() === hop.fromColumnKey.toLowerCase()
-        );
-        if (exactKey) {
-          fromLabel = parentTableMeta.columns[exactKey].label;
-        }
-      }
-
-      const sourceValues = pivotService.extractValues(parentRows, fromLabel);
-      if (sourceValues.length === 0) {
-        steps.push({ table: hop.targetTable, label: hop.targetTable, rows: [], availablePivots: [] });
-        continue;
-      }
-
-      const pivotResult = await pivotService.pivot({
-        sourceValues,
-        targetTable: hop.targetTable,
-        targetColumn: hop.targetColumn,
-        limit: 1000000,
-      });
-      steps.push({
-        table: hop.targetTable,
-        label: pivotResult.targetTableLabel,
-        rows: pivotResult.rows,
-        availablePivots: pivotResult.availablePivots,
-      });
+    for (const stepIdx of Object.keys(seedsByStep).map(Number)) {
+      const table = this.stepTable(config, stepIdx);
+      const result = await searchService.search({ table, conditions: seedsByStep[stepIdx], limit: 1000000 });
+      stepRows[stepIdx] = result.rows;
+      stepInfo[stepIdx] = { table, label: result.tableLabel, availablePivots: result.availablePivots };
+      resolved.add(stepIdx);
     }
 
+    // ── 3. BFS over hop edges (forward + backward) ─────────────────────────────
+    const edges = config.hops.map((hop, i) => ({
+      parentIdx: hop.parentStepIdx ?? i,
+      childIdx: i + 1,
+      hop,
+    }));
+
+    const resolveStep = async (fromIdx: number, fromColKey: string, toTable: string, toColKey: string, intoIdx: number) => {
+      const fromLabel = this.resolveColumnLabel(this.stepTable(config, fromIdx), fromColKey);
+      const sourceValues = pivotService.extractValues(stepRows[fromIdx] || [], fromLabel);
+      console.error(`[BFS] resolveStep: from step ${fromIdx} (${this.stepTable(config, fromIdx)}) col "${fromColKey}" → "${fromLabel}" → step ${intoIdx} (${toTable}), found ${sourceValues.length} values`);
+      if (sourceValues.length === 0) {
+        stepRows[intoIdx] = [];
+        stepInfo[intoIdx] = { table: toTable, label: toTable, availablePivots: [] };
+        resolved.add(intoIdx);
+        return;
+      }
+      const pr = await pivotService.pivot({ sourceValues, targetTable: toTable, targetColumn: toColKey, limit: 1000000 });
+      console.error(`[BFS] pivot result: ${pr.rows.length} rows`);
+      stepRows[intoIdx] = pr.rows;
+      stepInfo[intoIdx] = { table: toTable, label: pr.targetTableLabel, availablePivots: pr.availablePivots };
+      resolved.add(intoIdx);
+    };
+
+    let progress = true;
+    let guard = 0;
+    while (progress && guard++ <= config.hops.length + 1) {
+      progress = false;
+      console.error(`[BFS] iteration ${guard}, resolved: [${Array.from(resolved).join(",")}]`);
+      for (const edge of edges) {
+        const { parentIdx, childIdx, hop } = edge;
+        const pRes = resolved.has(parentIdx);
+        const cRes = resolved.has(childIdx);
+        if (pRes === cRes) continue; // both done or neither ready
+
+        if (pRes) {
+          // Forward: parent → child
+          await resolveStep(parentIdx, hop.fromColumnKey, hop.targetTable, hop.targetColumn, childIdx);
+        } else {
+          // Backward: child → parent
+          await resolveStep(childIdx, hop.targetColumn, this.stepTable(config, parentIdx), hop.fromColumnKey, parentIdx);
+        }
+        progress = true;
+        break; // restart outer loop so edges fire as soon as endpoints resolve
+      }
+    }
+
+    // ── 4. Assemble dense steps[] by index ─────────────────────────────────────
+    const steps: { table: string; label: string; rows: Record<string, any>[]; availablePivots?: any[] }[] = [];
+    for (let i = 0; i < totalSteps; i++) {
+      if (resolved.has(i) && stepInfo[i]) {
+        steps.push({ table: stepInfo[i].table, label: stepInfo[i].label, rows: stepRows[i] || [], availablePivots: stepInfo[i].availablePivots });
+      } else {
+        const table = this.stepTable(config, i);
+        steps.push({ table, label: table, rows: [], availablePivots: [] });
+      }
+    }
+
+    const logSeeds = Object.entries(seedsByStep).map(([idx, conds]) => ({
+      step: Number(idx),
+      conditions: conds.map(c => (c.values && c.values.length > 20 ? { ...c, values: `[${c.values.length} items: ${JSON.stringify(c.values.slice(0, 5))}...]` } : c)),
+    }));
+    console.log("🔍 [runChain BFS] Seeds:", JSON.stringify(logSeeds, null, 2));
+
     return { steps };
+  }
+
+  /** Table key for a step index: 0 = rootTable, n>0 = hops[n-1].targetTable */
+  private stepTable(config: EndpointConfig, idx: number): string {
+    if (idx <= 0) return config.rootTable;
+    return config.hops[idx - 1]?.targetTable ?? config.rootTable;
+  }
+
+  /** Resolve a column key/dbColumn/label (case-insensitive) to the row-key display label. */
+  private resolveColumnLabel(tableKey: string, colKey: string): string {
+    const meta = getTableMeta(tableKey);
+    if (!meta) return colKey;
+    const exactKey = Object.keys(meta.columns).find(
+      (k) => k.toLowerCase() === colKey.toLowerCase() ||
+             meta.columns[k].dbColumn.toLowerCase() === colKey.toLowerCase() ||
+             meta.columns[k].label.toLowerCase() === colKey.toLowerCase()
+    );
+    return exactKey ? meta.columns[exactKey].label : colKey;
   }
 
   // Perform left-join of all steps programmatically on the server, exactly matching useCombinedRows.js
@@ -555,6 +489,7 @@ export class EndpointService {
     steps: { table: string; label: string; rows: Record<string, any>[] }[],
     config: EndpointConfig
   ): Record<string, any>[] {
+    console.log(`[combineSteps] Starting with ${steps.length} steps:`, steps.map((s,i) => `${i}:${s.table}(${s.rows.length})`).join(' '));
     if (steps.length === 0) return [];
     
     // Choose master axis (step with most rows)
@@ -569,6 +504,7 @@ export class EndpointService {
 
     const baseIdx = steps.indexOf(master);
     const baseRows = master.rows;
+    console.log(`[combineSteps] Chosen master: step ${baseIdx} (${master.table}) with ${baseRows.length} rows`);
     if (baseRows.length === 0) return [];
 
     const outputRows = baseRows.map((row) => ({ ...row }));
@@ -711,7 +647,7 @@ export class EndpointService {
     // Filter by visible cols if specified (with dynamic alias fallback for consistent schema keys)
     if (config.visibleCols && config.visibleCols.length > 0) {
       const masterIdx = baseIdx;
-      return outputRows.map((row) => {
+      const filtered = outputRows.map((row) => {
         const newRow: Record<string, any> = {};
         config.visibleCols!.forEach((col) => {
           // Parse col name to find stepIdx and original column name
@@ -725,7 +661,7 @@ export class EndpointService {
 
           // Determine the runtime key in combined row
           const runtimeKey = stepIdx === masterIdx ? origCol : `S${stepIdx + 1}_${origCol}`;
-          
+
           if (row[runtimeKey] !== undefined) {
             newRow[col] = row[runtimeKey];
           } else {
@@ -747,8 +683,11 @@ export class EndpointService {
         });
         return newRow;
       });
+      console.log(`[combineSteps] Filtered by visibleCols, returning ${filtered.length} rows`);
+      return filtered;
     }
 
+    console.log(`[combineSteps] No visibleCols filter, returning ${outputRows.length} rows`);
     return outputRows;
   }
 }

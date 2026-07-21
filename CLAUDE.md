@@ -192,6 +192,7 @@ Composables in `frontend/src/composables/`:
 - **Verify Before Action:** Always read the relevant files and search the codebase (`grep_search`, `view_file`) before making any edits or writing new code.
 - **No Guessing:** Never assume or guess that a function, variable, database column, component, or API endpoint exists. You must explicitly verify its presence in the codebase first.
 - **Maintain Integrity:** Verify the active server and database configuration from the configuration files before executing queries or running tests.
+- **ASK FOR TEST DATA EVERY TIME:** Before testing any feature (search, pivot, endpoint, query), ALWAYS ask the user to provide real test data (Serial Numbers, Lot Numbers, PT Numbers, etc.) from the actual database. NEVER use random/guessed/made-up values — they will always return 0 rows. Wait for user confirmation with actual data before running any test.
 
 ## Reference Docs
 

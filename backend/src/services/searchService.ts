@@ -87,12 +87,15 @@ export class SearchService {
     }
 
     // 3. Generic Custom SQL / Sentinel Dispatcher (mirrors pivotService)
+    console.log(`\n[searchService.search] table="${table}", has customSql? ${!!tableMeta.customSql}`);
     if (tableMeta.customSql) {
+      console.log(`[searchService.search] → routing to _searchWithCustomSql`);
       if (tableMeta.customSql.multiQuery && tableMeta.customSql.multiQueryType === "wms") {
         return this._searchWmsMulti(params, tableMeta, conditionsList);
       }
       return this._searchWithCustomSql(params, tableMeta, conditionsList);
     }
+    console.log(`[searchService.search] → no customSql, continuing to Drizzle/RawPool path`);
 
     const dbTable = tableMeta.tableName;
     const connKey = tableMeta.connectionKey;
@@ -1133,7 +1136,8 @@ export class SearchService {
           }
         }
         links.unshift({ targetTable: table, targetColumn: colKey, label: `🔍 ดึงข้อมูลทั้งหมดในตารางนี้ (Self)` });
-        return { fromColumnKey: colKey, fromColumnLabel: col.label, fromDbColumn: col.dbColumn, linksTo: links };
+        // ponytail: fromDbColumn must be col.label (row keys are label-aliased, not physical); matches the 5 other builders
+        return { fromColumnKey: colKey, fromColumnLabel: col.label, fromDbColumn: col.label, linksTo: links };
       });
 
     const descCol = conditionsList.map(c => tableMeta.columns[c.column]?.label ?? c.column).join(" + ");
