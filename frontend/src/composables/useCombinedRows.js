@@ -297,27 +297,44 @@ export function useCombinedRows({
         colOrigins[alias] = col;
       });
 
+      // ponytail: one-to-many lookup — each key maps to ARRAY of rows (fan-out support)
       const lookup = new Map();
       rows.forEach((row) => {
         const key = String(row[incomingJoinCol] ?? '').trim();
-        if (key && !lookup.has(key)) lookup.set(key, row);
+        if (key) {
+          if (!lookup.has(key)) lookup.set(key, []);
+          lookup.get(key).push(row);
+        }
       });
 
+      // ponytail: fan-out join — when incoming step has multiple rows per key, expand outputRows
+      const expandedRows = [];
       outputRows.forEach((outRow) => {
         const key = String(outRow[outputJoinCol] ?? '').trim();
-        const match = key ? lookup.get(key) : undefined;
-        if (match) {
-          outRow[statusCol] = 'MATCH';
-          rowColumns.forEach((col) => {
-            outRow[aliases[col]] = match[col];
+        const matches = key ? lookup.get(key) : undefined;
+
+        if (matches && matches.length > 0) {
+          // Fan-out: create one output row per match
+          matches.forEach((match) => {
+            const newRow = { ...outRow }; // clone current row
+            newRow[statusCol] = 'MATCH';
+            rowColumns.forEach((col) => {
+              newRow[aliases[col]] = match[col];
+            });
+            expandedRows.push(newRow);
           });
         } else {
+          // No match: keep original row with null columns
           outRow[statusCol] = 'NA (WIP)';
           rowColumns.forEach((col) => {
             outRow[aliases[col]] = null;
           });
+          expandedRows.push(outRow);
         }
       });
+
+      // Replace outputRows with expanded version
+      outputRows.splice(0, outputRows.length, ...expandedRows);
     }
 
     return {
