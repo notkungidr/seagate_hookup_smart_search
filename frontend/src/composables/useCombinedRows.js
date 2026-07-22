@@ -199,6 +199,7 @@ export function useCombinedRows({
     let baseColumns = Object.keys(baseRows[0]);
 
     const usedColumns = new Set(baseColumns);
+    const usedColumnsLower = new Set(baseColumns.map(c => c.toLowerCase())); // case-insensitive tracking
     const columnAliases = { [baseIdx]: {} };
     
     const colSteps = {};
@@ -285,9 +286,10 @@ export function useCombinedRows({
       const aliases = {};
       columnAliases[idx] = aliases;
       rowColumns.forEach((col) => {
-        const alias = col === incomingJoinCol || usedColumns.has(col) ? `S${idx + 1}_${col}` : col;
+        const alias = col === incomingJoinCol || usedColumnsLower.has(col.toLowerCase()) ? `S${idx + 1}_${col}` : col;
         aliases[col] = alias;
         usedColumns.add(alias);
+        usedColumnsLower.add(alias.toLowerCase());
         colSteps[alias] = idx;
         colOrigins[alias] = col;
       });

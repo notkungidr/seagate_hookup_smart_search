@@ -509,6 +509,7 @@ export class EndpointService {
 
     const outputRows = baseRows.map((row) => ({ ...row }));
     const usedColumns = new Set(Object.keys(baseRows[0]));
+    const usedColumnsLower = new Set(Object.keys(baseRows[0]).map(c => c.toLowerCase())); // case-insensitive tracking
     const columnAliases: Record<number, Record<string, string>> = { [baseIdx]: {} };
     Object.keys(baseRows[0]).forEach((col) => {
       columnAliases[baseIdx][col] = col;
@@ -616,9 +617,10 @@ export class EndpointService {
 
       const rowColumns = step.rows.length ? Object.keys(step.rows[0]) : [];
       rowColumns.forEach((col) => {
-        const alias = col === incomingJoinCol || usedColumns.has(col) ? `S${idx + 1}_${col}` : col;
+        const alias = col === incomingJoinCol || usedColumnsLower.has(col.toLowerCase()) ? `S${idx + 1}_${col}` : col;
         aliases[col] = alias;
         usedColumns.add(alias);
+        usedColumnsLower.add(alias.toLowerCase());
       });
 
       const lookup = new Map();
