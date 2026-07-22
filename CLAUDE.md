@@ -115,6 +115,45 @@ Separate from Query Templates. **Endpoint** is saved chain config (`EndpointConf
 - `POST /api/v1/trace/:id` accepts JSON body + query params; arrays in body get joined with `\n` for multi-value IN-list filters.
 - Frontend management UI: `frontend/src/components/ApiManagerDialog.vue`.
 
+### Query Param Override Behavior (Fixed 2026-07-22)
+
+**Problem:** When endpoint saved with `rootConditions = [{ column: "ptNo", value: "PT260721158_L" }]`, calling API with `?lotCoil=DR10MCW260721D09-L` resulted in SQL `WHERE ptNo='PT260721158_L' AND lot_coil LIKE '%DR10MCW260721D09-L%'` → filtered to 1 root row instead of 4 rows matching lotCoil.
+
+**Root Cause:**
+1. **Backend:** Query params were added as additional seeds, creating AND clauses with template rootConditions
+2. **Frontend:** ApiManagerDialog only showed `allowedParams` fields → missing rootConditions columns like `lotCoil`
+
+**Fix (commits `6a2c649` + `fbede05`):**
+
+**Backend (`endpointService.ts` → `runChain()`):**
+- Query params **override** matching rootConditions values (same column)
+- **Skip** non-overridden rootConditions when query params present (prevents unwanted AND)
+- Example: `?lotCoil=X` → skips `ptNo` condition, uses only `lotCoil=X` → gets all PT matching that lotCoil
+
+**Frontend (`ApiManagerDialog.vue` + `useCombinedRows.js`):**
+- `allowedParamsList` now includes `rootConditions[].column` + `allowedParams` → shows form fields for all root columns
+- Ported backend `combineSteps()` fan-out logic: lookup Map is one-to-many (`Map<key, row[]>`), join loop expands rows (1 parent × N children = N output rows)
+- Combined view now matches backend row count exactly
+
+**Use Case:**
+```
+Endpoint: "PT ACA TO COIL DATA"
+  rootConditions: [{ column: "ptNo", operator: "eq", value: "PT260721158_L" }]
+  
+API Call: GET /api/v1/trace/apiPtAcaToCoilMagnetWireNo?lotCoil=DR10MCW260721D09-L
+
+Before Fix:
+  SQL: WHERE ptNo='PT260721158_L' AND lot_coil LIKE '%DR10MCW260721D09-L%'
+  Result: 3 rows (1 S1 row fan-out to 3 S3)
+  
+After Fix:
+  SQL: WHERE lot_coil LIKE '%DR10MCW260721D09-L%'  (ptNo condition skipped)
+  Result: 12 rows (4 S1 rows × ~3 S3 per row)
+  Frontend Combined view: also 12 rows (fan-out join working)
+```
+
+**Impact:** Generic solution — any endpoint can now be called with different root columns than template defaults without creating conflicting AND clauses. Frontend test forms show all root condition columns, not just explicitly allowed params.
+
 ### Smart API Directory & RBAC (Added 2026-05-28)
 
 `saved_endpoints` carries three extra columns auto-added on startup:
