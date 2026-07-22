@@ -1523,9 +1523,12 @@ import { useCombinedRows, isDateColumnName } from '../composables/useCombinedRow
 import { useExcelExport } from '../composables/useExcelExport';
 import { PIVOT_BATCH_SIZE, fetchAppConfig } from '../config/appConfig';
 
+// Auto-detect API base URL based on current hostname
 const API_BASE = import.meta.env.DEV
   ? 'http://localhost:9090'
-  : 'https://devth-app6.beltontechnology.com:9090';
+  : window.location.hostname.includes('intranet06')
+    ? 'https://intranet06-th.beltontechnology.com:9090'
+    : 'https://devth-app6.beltontechnology.com:9090';
 
 import { useQueryTemplates } from '../composables/useQueryTemplates';
 
