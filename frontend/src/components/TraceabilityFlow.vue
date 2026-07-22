@@ -131,6 +131,7 @@
             :search-form="searchForm"
             :next-uid="nextUid"
             :visible-combined-cols="visibleCombinedCols"
+            :combined-col-steps="combinedColSteps"
             :admin-user="adminUser"
             @update:chain-steps="onTemplateChainUpdate"
             @chain-finished="onTemplateChainFinished"
@@ -1250,6 +1251,13 @@
     <!-- 💾 Dialog: Save API Endpoint -->
     <el-dialog v-model="saveApiDialogVisible" title="💾 สร้าง API Endpoint (Traceability Flow as a Service)" width="520px" destroy-on-close>
       <div style="display: flex; flex-direction: column; gap: 14px;">
+        <div v-if="apiSourceTemplate" style="background: #f0f9eb; border: 1px solid #b3e19d; border-radius: 8px; padding: 12px;">
+          <strong style="color: #529b2e;">Template source of truth:</strong>
+          <div style="margin-top: 4px;">{{ apiSourceTemplate.name }}</div>
+          <div style="margin-top: 4px; color: var(--c-info); font-family: monospace; font-size: var(--fs-xs);">
+            {{ apiSourceTemplate.stepsChain?.join(' → ') }}
+          </div>
+        </div>
         <el-form label-position="top" size="default">
           <el-form-item label="Endpoint ID (Slug สำหรับเรียกใช้ใน URL - ห้ามเว้นวรรค)">
             <el-input v-model="apiForm.id" placeholder="เช่น aca-laser-vmi-flow" clearable />
@@ -1337,7 +1345,7 @@
         </div>
 
         <div style="background: #fdf6ec; border: 1px solid #faecd8; border-radius: 8px; padding: 12px; font-size: var(--fs-xs); color: #b88230;">
-          <strong>🔒 การจำกัดคอลัมน์ (Projection):</strong> Exporter จะดึงเฉพาะ <strong>{{ visibleCombinedCols.length }} คอลัมน์</strong> ที่คุณติ๊กเลือกไว้ใน Column Selector เท่านั้น!
+          <strong>🔒 การจำกัดคอลัมน์ (Projection):</strong> API จะใช้ <strong>{{ apiProjectionColumns.length }} Favorite Columns</strong> จาก Template โดยตรง (ถ้า Template ไม่กำหนด จะคืนทุกคอลัมน์)
         </div>
 
         <div v-if="apiForm.id" style="background: #f0f9eb; border: 1px solid #e1f3d8; border-radius: 8px; padding: 12px; font-size: var(--fs-xs); font-family: monospace;">
@@ -3298,6 +3306,7 @@ function resetAll() {
 
 // 💾 Save API Endpoint UI dialog states & operations
 const saveApiDialogVisible = ref(false);
+const apiSourceTemplate = ref(null);
 const API_GROUP_OPTIONS = ['Yield Tracking', 'Coil Traceability', 'PCCA Rework', 'Logistics', 'General'];
 const apiForm = ref({
   id: '',
@@ -3311,49 +3320,57 @@ const apiForm = ref({
 });
 
 const apiParameterOptions = computed(() => {
-  const options = [];
-  const added = new Set();
-  
-  // 1. Root table columns (without prefix, for DB-level filtering)
-  if (chainSteps.value.length > 0) {
-    const firstStep = chainSteps.value[0];
-    const searchableCols = tablesMeta.value.find(t => t.key === (firstStep.targetTable || firstStep.table))?.columns || [];
-    searchableCols.filter(c => c.searchable).forEach(c => {
-      const val = c.key;
-      if (!added.has(val)) {
-        added.add(val);
-        options.push({ value: val, label: `${c.label} (Database Query - Fast ⚡)` });
-      }
-    });
-  }
+  const source = apiSourceTemplate.value;
+  if (!source) return [];
 
-  // 1b. Downstream step columns (S<n>_ prefix = DB query pinned to step n).
-  //     The backend runChain honors the prefix to seed that step, then pivots both
-  //     directions (template-style trace) — the "ย้อนไปย้อนมา" capability.
-  chainSteps.value.forEach((step, idx) => {
-    if (idx === 0) return; // root already covered above
-    const stepTableKey = step.targetTable || step.table;
-    const stepLabel = step.tableLabel || stepTableKey;
-    const cols = tablesMeta.value.find(t => t.key === stepTableKey)?.columns || [];
-    cols.filter(c => c.searchable).forEach(c => {
-      const val = `S${idx + 1}_${c.key}`;
-      if (!added.has(val)) {
-        added.add(val);
-        options.push({ value: val, label: `${val} — ${c.label} (Step ${idx + 1}: ${stepLabel} • Database Query ⚡)` });
-      }
-    });
-  });
+  // ponytail: show only favoriteColumns from Template, not all searchable fields
+  const favoriteColumns = Array.isArray(source.favoriteColumns) ? source.favoriteColumns : [];
+  if (!favoriteColumns.length) return [];
 
-  // 2. All combined columns (with prefix, for grid-level filtering)
-  combinedCols.value.forEach(col => {
-    if (!added.has(col)) {
-      added.add(col);
-      options.push({ value: col, label: `${col} (In-Memory Filter 🔍)` });
+  const stepTables = source.stepsChain?.length
+    ? source.stepsChain
+    : [source.rootTable, ...(source.hops || []).map(h => h.targetTable)];
+
+  return favoriteColumns.map(colName => {
+    // favoriteColumns stores display labels (e.g. "S1_Lot Coil" with space).
+    // Parse label → resolve to actual field name (e.g. "S1_lot_coil" underscore).
+    const prefixMatch = colName.match(/^S(\d+)_(.+)$/);
+    let stepIdx = 0;
+    let labelPart = colName;
+    let displayLabel = colName;
+    let fieldName = colName; // default: use as-is
+
+    if (prefixMatch) {
+      stepIdx = Number(prefixMatch[1]) - 1;
+      labelPart = prefixMatch[2]; // e.g. "Lot Coil" (with space)
     }
+
+    const stepTableKey = stepTables[stepIdx];
+    if (stepTableKey) {
+      const tableMeta = tablesMeta.value.find(t => t.key === stepTableKey);
+      // Match by label (case-insensitive, handle spaces)
+      const col = tableMeta?.columns.find(c =>
+        c.label.toLowerCase().replace(/\s+/g, '') === labelPart.toLowerCase().replace(/\s+/g, '') ||
+        c.key.toLowerCase() === labelPart.toLowerCase() ||
+        c.label.toLowerCase() === labelPart.toLowerCase()
+      );
+      if (col) {
+        // Build correct field name: S<n>_<key> or just <key> for root
+        fieldName = stepIdx === 0 ? col.key : `S${stepIdx + 1}_${col.key}`;
+        displayLabel = stepIdx === 0
+          ? `${col.label} (Root • Database Query ⚡)`
+          : `${fieldName} — ${col.label} (Step ${stepIdx + 1} • Database Query ⚡)`;
+      }
+    }
+
+    return { value: fieldName, label: displayLabel };
   });
-  
-  return options;
 });
+const apiProjectionColumns = computed(() => (
+  Array.isArray(apiSourceTemplate.value?.favoriteColumns)
+    ? apiSourceTemplate.value.favoriteColumns
+    : []
+));
 function authHeaders(extra = {}) {
   const h = { ...extra };
   const enHeader = adminUser.value?.en || JSON.parse(localStorage.getItem('sg_admin_user') || 'null')?.en;
@@ -3402,11 +3419,14 @@ async function remoteSearchEmployees(query) {
   }
 }
 
-function openSaveApiDialog() {
-  if (!chainSteps.value.length) {
-    ElMessage.warning('กรุณาทำการสืบค้นข้อมูลก่อนสร้าง API');
+function openSaveApiDialog(template = null) {
+  const selectedTemplate = template?.id ? template : templatesPanelRef.value?.selectedTemplate;
+  if (!selectedTemplate?.id) {
+    ElMessage.warning('กรุณาบันทึกและเลือก Template ก่อนสร้าง API — API จะ clone chain จาก Template โดยตรง');
     return;
   }
+
+  apiSourceTemplate.value = selectedTemplate;
 
   apiForm.value = {
     id: '',
@@ -3436,70 +3456,16 @@ async function confirmSaveApi() {
 
   apiForm.value.saving = true;
   try {
-    const firstStep = chainSteps.value[0];
-    const hops = chainSteps.value.slice(1).map(step => {
-      let parentIdx = step._pivotFromStepIdx;
-      if (parentIdx === undefined) parentIdx = chainSteps.value.indexOf(step) - 1;
-      return {
-        fromColumnKey: step._joinFromDbColumn,
-        targetTable: step.targetTable || step.table,
-        targetColumn: step._joinToColumn,
-        parentStepIdx: parentIdx,
-      };
-    });
-
-    const rootConditions = [];
-    for (let idx = 0; idx < searchForm.value.conditions.length; idx++) {
-      const cond = searchForm.value.conditions[idx];
-      if (!cond.column) continue;
-
-      const isIn = cond.operator === 'in';
-      const isBetween = cond.operator === 'between';
-      const isDate = isDateColumn(cond.column);
-      let value = '';
-      let value2 = '';
-      let values = [];
-
-      if (isIn) {
-        values = parseMultiValue(cond.multiValue);
-      } else if (isBetween) {
-        if (isDate) {
-          if (cond.dateRange && cond.dateRange.length === 2) {
-            [value, value2] = cond.dateRange;
-          }
-        } else {
-          value = (cond.value || '').trim();
-          value2 = (cond.value2 || '').trim();
-        }
-      } else {
-        value = (cond.value || '').trim();
-      }
-
-      rootConditions.push({
-        column: cond.column,
-        operator: cond.operator,
-        value,
-        value2: isBetween ? value2 : undefined,
-        values: isIn ? values : undefined,
-      });
-    }
-
     const endpointPayload = {
       id: idStr,
       name: nameStr,
       description: apiForm.value.description,
+      templateId: apiSourceTemplate.value.id,
       apiGroup: apiForm.value.apiGroup || 'General',
       visibility: apiForm.value.visibility === 'restricted' ? 'restricted' : 'public',
       allowedUsers: apiForm.value.visibility === 'restricted' ? [...apiForm.value.allowedUsers] : [],
-      config: {
-        rootTable: firstStep.targetTable || firstStep.table,
-        rootColumn: firstStep.columnLabel,
-        rootOperator: firstStep.operator,
-        rootConditions,
-        hops,
-        visibleCols: [...visibleCombinedCols.value],
-        allowedParams: [...apiForm.value.selectedParams],
-      },
+      visibleCols: [...apiProjectionColumns.value],
+      allowedParams: [...apiForm.value.selectedParams],
     };
 
     const headersOut = { 'Content-Type': 'application/json' };
@@ -3513,8 +3479,9 @@ async function confirmSaveApi() {
     });
     const data = await res.json();
     if (data.success) {
+      const saveAction = data.republished ? 'อัปเดต API จาก Template' : 'สร้าง API Endpoint';
       ElMessageBox.alert(
-        `สร้าง API Endpoint "${nameStr}" สำเร็จ!<br/><br/><strong>ลิงก์ดึงข้อมูล (PowerBI / Excel):</strong><br/><code style="word-break:break-all; background:#f4f4f5; padding:8px; border-radius:4px; display:block; margin:6px 0;">${API_BASE}/api/v1/trace/${idStr}?format=csv</code>`,
+        `${saveAction} "${nameStr}" สำเร็จ!<br/><br/><strong>ลิงก์ดึงข้อมูล (PowerBI / Excel):</strong><br/><code style="word-break:break-all; background:#f4f4f5; padding:8px; border-radius:4px; display:block; margin:6px 0;">${API_BASE}/api/v1/trace/${idStr}?format=csv</code>`,
         'สำเร็จ (Success)',
         { confirmButtonText: 'ตกลง', dangerouslyUseHTMLString: true, type: 'success' }
       );

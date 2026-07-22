@@ -516,6 +516,32 @@ export const TABLE_REGISTRY: Record<string, TableMeta> = {
     }
   },
 
+  STORELOT_FG_DETAIL: {
+    tableName: "STORELOT_FG_DETAIL",
+    label: "SGCOIL Store Lot FG Detail",
+    drizzleTable: null,
+    customSql: {
+      connectionKey: "SGCOIL",
+      buildQuery: (values: string[], dbCol: string) => ({
+        sql: `SELECT * FROM STORELOT_FG_DETAIL WHERE \`${dbCol}\` IN (${values.map(() => "?").join(",")})`,
+        params: values,
+      }),
+    },
+    columns: {
+      storeLot: { dbColumn: "store_lot", label: "Store Lot", searchable: true },
+      ptNo: { dbColumn: "pt_no", label: "PT No", searchable: true },
+      ptQty: { dbColumn: "pt_qty", label: "PT Qty", searchable: false },
+      actlQty: { dbColumn: "actl_qty", label: "Actual Qty", searchable: false },
+      usedQty: { dbColumn: "used_qty", label: "Used Qty", searchable: false },
+      reg: { dbColumn: "reg", label: "Registered", searchable: false },
+      lotStatus: { dbColumn: "lot_status", label: "Lot Status", searchable: true },
+    }
+  },
+
+  // ponytail: COIL_TRACK_DATA removed — table doesn't exist in any accessible database (SGCOIL/BIT/seagate).
+  // Template "PT ACA TO PT COIL..." that referenced this table will fail at runtime.
+  // Re-add when the actual table location is confirmed.
+
   tl_info: {
     tableName: "tl_info",
     label: "TL Info (Traveler Lot + PC)",

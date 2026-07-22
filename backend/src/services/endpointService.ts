@@ -9,6 +9,8 @@ const searchService = new SearchService();
 const pivotService = new PivotService();
 
 export interface EndpointConfig {
+  /** Template that this public API was cloned from. Required for new endpoints. */
+  sourceTemplateId?: string;
   rootTable: string;
   rootColumn: string;
   rootOperator?: string;
@@ -17,7 +19,10 @@ export interface EndpointConfig {
     fromColumnKey: string;
     targetTable: string;
     targetColumn: string;
-    parentStepIdx?: number; // 0-based index in steps array; defaults to idx-1 if absent
+    /** Canonical template field: 0-based source step index. */
+    fromStepIdx?: number;
+    /** Legacy endpoint field. Read-only compatibility for endpoints saved before template parity. */
+    parentStepIdx?: number;
   }[];
   visibleCols?: string[];
   allowedParams?: string[];
@@ -37,6 +42,181 @@ export interface SavedEndpoint {
 }
 
 export class EndpointService {
+  /** Resolve a registry key/dbColumn/label to the canonical registry column key. */
+  private resolveColumnKey(tableKey: string, column: string, context: string): string {
+    const meta = getTableMeta(tableKey);
+    if (!meta) {
+      throw new Error(`${context}: table "${tableKey}" not found in registry.`);
+    }
+
+    const raw = String(column || "").trim();
+    const match = Object.keys(meta.columns).find((key) =>
+      key.toLowerCase() === raw.toLowerCase() ||
+      meta.columns[key].dbColumn.toLowerCase() === raw.toLowerCase() ||
+      meta.columns[key].label.toLowerCase() === raw.toLowerCase()
+    );
+    if (!match) {
+      throw new Error(`${context}: column "${column}" not found on table "${tableKey}".`);
+    }
+    return match;
+  }
+
+  private hopSourceStep(hop: EndpointConfig["hops"][number], hopIdx: number): number {
+    return hop.fromStepIdx ?? hop.parentStepIdx ?? hopIdx;
+  }
+
+  /** Mirror useQueryTemplates.buildApiCondition for backend/API execution. */
+  private normalizeTemplateCondition(tableKey: string, condition: any, idx: number): SearchCondition {
+    const column = this.resolveColumnKey(
+      tableKey,
+      String(condition?.column || "").replace(/^S1_/i, ""),
+      `Endpoint root condition ${idx + 1}`
+    );
+    const operator = String(condition?.operator || "like") as SearchCondition["operator"];
+    if (!["like", "eq", "in", "between", "gte", "lte"].includes(operator)) {
+      throw new Error(`Endpoint root condition ${idx + 1}: unsupported operator "${operator}".`);
+    }
+
+    const meta = getTableMeta(tableKey)!;
+    const colMeta = meta.columns[column];
+    const isDate = colMeta.label.toLowerCase().includes("date") || column.toLowerCase().includes("date");
+
+    if (operator === "in") {
+      const values = Array.isArray(condition.values) && condition.values.length
+        ? condition.values.map((value: any) => String(value).trim()).filter(Boolean)
+        : String(condition.multiValue || "").split(/[\n,]+/).map(value => value.trim()).filter(Boolean);
+      // ponytail: allow empty IN [] at normalize-time — runChain will populate from query params
+      return { column, operator, value: "", values };
+    }
+
+    if (operator === "between") {
+      const dateRange = Array.isArray(condition.dateRange) ? condition.dateRange : [];
+      const value = String(isDate && dateRange.length === 2 ? dateRange[0] : (condition.value || "")).trim();
+      const value2 = String(isDate && dateRange.length === 2 ? dateRange[1] : (condition.value2 || "")).trim();
+      if (!value || !value2) {
+        throw new Error(`Endpoint root condition ${idx + 1} (${column}) BETWEEN requires both values.`);
+      }
+      return { column, operator, value, value2 };
+    }
+
+    const dateRange = Array.isArray(condition.dateRange) ? condition.dateRange : [];
+    const value = String(condition.value || (!condition.value && isDate ? dateRange[0] || "" : "")).trim();
+    if (!value) {
+      throw new Error(`Endpoint root condition ${idx + 1} (${column}) requires a value.`);
+    }
+    return { column, operator, value };
+  }
+
+  /**
+   * Convert template/legacy endpoint shapes into one validated canonical shape.
+   * The canonical hop parent field is `fromStepIdx`, exactly as stored by templates.
+   */
+  normalizeConfig(input: EndpointConfig): EndpointConfig {
+    if (!input || !input.rootTable) throw new Error("Endpoint config is missing rootTable.");
+    if (!Array.isArray(input.hops)) throw new Error("Endpoint config is missing hops[].");
+    if (!getTableMeta(input.rootTable)) {
+      throw new Error(`Endpoint root table "${input.rootTable}" not found in registry.`);
+    }
+
+    const normalizedHops: EndpointConfig["hops"] = [];
+    const stepTables: string[] = [input.rootTable];
+    input.hops.forEach((hop, hopIdx) => {
+      const childStepIdx = hopIdx + 1;
+      const fromStepIdx = this.hopSourceStep(hop, hopIdx);
+      if (!Number.isInteger(fromStepIdx) || fromStepIdx < 0 || fromStepIdx >= childStepIdx) {
+        throw new Error(`Endpoint hop ${hopIdx + 1}: fromStepIdx ${fromStepIdx} must reference an earlier step.`);
+      }
+
+      const sourceTable = stepTables[fromStepIdx];
+      if (!sourceTable) {
+        throw new Error(`Endpoint hop ${hopIdx + 1}: source step ${fromStepIdx + 1} has no table.`);
+      }
+      if (!getTableMeta(hop.targetTable)) {
+        throw new Error(`Endpoint hop ${hopIdx + 1}: target table "${hop.targetTable}" not found in registry.`);
+      }
+
+      normalizedHops.push({
+        fromColumnKey: this.resolveColumnKey(sourceTable, hop.fromColumnKey, `Endpoint hop ${hopIdx + 1} source`),
+        fromStepIdx,
+        targetTable: hop.targetTable,
+        targetColumn: this.resolveColumnKey(hop.targetTable, hop.targetColumn, `Endpoint hop ${hopIdx + 1} target`),
+      });
+      stepTables.push(hop.targetTable);
+    });
+
+    const rootConditions = (input.rootConditions || []).map((condition, idx) =>
+      this.normalizeTemplateCondition(input.rootTable, condition, idx)
+    );
+    const rootColumnRaw = input.rootColumn || rootConditions[0]?.column;
+    if (!rootColumnRaw) throw new Error("Endpoint config is missing rootColumn/rootConditions.");
+
+    return {
+      sourceTemplateId: input.sourceTemplateId,
+      rootTable: input.rootTable,
+      rootColumn: this.resolveColumnKey(input.rootTable, rootColumnRaw, "Endpoint root"),
+      rootOperator: input.rootOperator || rootConditions[0]?.operator || "like",
+      rootConditions,
+      hops: normalizedHops,
+      visibleCols: Array.isArray(input.visibleCols) ? [...input.visibleCols] : [],
+      allowedParams: Array.isArray(input.allowedParams) ? [...input.allowedParams] : [],
+    };
+  }
+
+  /** Clone the executable definition from a saved Template. API-only options stay separate. */
+  buildConfigFromTemplate(
+    template: any,
+    options: { visibleCols?: string[]; allowedParams?: string[] } = {}
+  ): EndpointConfig {
+    if (!template?.id) throw new Error("A saved template is required before publishing an API endpoint.");
+    return this.normalizeConfig({
+      sourceTemplateId: template.id,
+      rootTable: template.rootTable,
+      rootColumn: template.rootColumn,
+      rootOperator: template.rootOperator,
+      rootConditions: Array.isArray(template.rootConditions)
+        ? template.rootConditions.map((condition: SearchCondition) => ({ ...condition }))
+        : [],
+      hops: Array.isArray(template.hops)
+        ? template.hops.map((hop: any) => ({
+            fromColumnKey: hop.fromColumnKey,
+            fromStepIdx: hop.fromStepIdx,
+            targetTable: hop.targetTable,
+            targetColumn: hop.targetColumn,
+          }))
+        : [],
+      visibleCols: Array.isArray(options.visibleCols)
+        ? options.visibleCols
+        : (Array.isArray(template.favoriteColumns) ? template.favoriteColumns : []),
+      allowedParams: Array.isArray(options.allowedParams) ? options.allowedParams : [],
+    });
+  }
+
+  /** True when a URL parameter resolves to a concrete registry field on one chain step. */
+  isDatabaseParameter(input: EndpointConfig, paramName: string): boolean {
+    const config = this.normalizeConfig(input);
+    const prefix = paramName.match(/^S(\d+)_(.+)$/i);
+    if (prefix) {
+      const stepIdx = Number(prefix[1]) - 1;
+      if (stepIdx < 0 || stepIdx > config.hops.length) return false;
+      try {
+        this.resolveColumnKey(this.stepTable(config, stepIdx), prefix[2], "API parameter");
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    for (let stepIdx = 0; stepIdx <= config.hops.length; stepIdx++) {
+      try {
+        this.resolveColumnKey(this.stepTable(config, stepIdx), paramName, "API parameter");
+        return true;
+      } catch {
+        // Continue: an unprefixed parameter binds to the first matching step.
+      }
+    }
+    return false;
+  }
+
   async ensureTableExists(): Promise<void> {
     try {
       await dbSeagateDev.execute(sql`
@@ -175,11 +355,16 @@ export class EndpointService {
   }
 
   async create(ep: SavedEndpoint): Promise<SavedEndpoint> {
+    if (!ep.config?.sourceTemplateId) {
+      throw new Error("A saved Template is required before creating an API endpoint.");
+    }
     const now = new Date().toISOString();
     const pool = getRawPool("SeagateDev");
     const visibility = ep.visibility === "restricted" ? "restricted" : "public";
     const apiGroup = (ep.apiGroup || "General").trim() || "General";
     const createdBy = (ep.createdBy || "").trim();
+
+    const normalizedConfig = this.normalizeConfig(ep.config);
 
     await pool.execute(
       `INSERT INTO saved_endpoints
@@ -189,7 +374,7 @@ export class EndpointService {
         ep.id,
         ep.name,
         ep.description || "",
-        JSON.stringify(ep.config),
+        JSON.stringify(normalizedConfig),
         now,
         now,
         createdBy,
@@ -206,6 +391,7 @@ export class EndpointService {
 
     return {
       ...ep,
+      config: normalizedConfig,
       createdAt: now,
       updatedAt: now,
       createdBy,
@@ -228,6 +414,7 @@ export class EndpointService {
       createdAt: existing.createdAt,
       updatedAt: now,
     };
+    next.config = this.normalizeConfig(next.config);
     const visibility = next.visibility === "restricted" ? "restricted" : "public";
     const apiGroup = (next.apiGroup || "General").trim() || "General";
 
@@ -287,15 +474,10 @@ export class EndpointService {
     config: EndpointConfig,
     queryParams: Record<string, string>
   ): Promise<{ steps: { table: string; label: string; rows: Record<string, any>[]; availablePivots?: any[] }[] }> {
+    // Every invocation, including legacy saved endpoints, enters the exact same
+    // canonical template shape before any table/field resolution occurs.
+    config = this.normalizeConfig(config);
     const totalSteps = config.hops.length + 1;
-
-    const isDateColumn = (colName: string): boolean => {
-      const normalized = colName.toLowerCase();
-      if (normalized.includes('user_reg') || normalized.includes('user_upd') || normalized.includes('userreg') || normalized.includes('userupd')) {
-        return false;
-      }
-      return normalized.includes('date') || normalized.includes('time') || normalized.includes('crdt') || normalized === 'reg' || normalized === 'upd';
-    };
 
     // ── 1. Parse params into per-step seeds (honor S<n>_ prefix) ───────────────
     const seedsByStep: Record<number, SearchCondition[]> = {};
@@ -304,18 +486,70 @@ export class EndpointService {
       seedsByStep[stepIdx].push(cond);
     };
 
-    // Fold static config.rootConditions into step 0 (drop date filters unless a matching param arrived)
+    // Start with the Template's complete condition snapshot. API params will
+    // override matching column values before seeding.
     const rootConditions: SearchCondition[] = (config.rootConditions || [])
-      .map(c => ({ ...c }))
-      .filter(c => {
-        const clean = c.column.replace(/^s\d+_/i, "");
-        if (!isDateColumn(clean)) return true;
-        return Object.keys(queryParams).some(
-          k => k.replace(/^s\d+_/i, "").toLowerCase() === clean.toLowerCase() &&
-               queryParams[k] !== undefined && queryParams[k] !== ""
-        );
-      });
-    rootConditions.forEach(c => addSeed(0, c));
+      .map(c => ({ ...c, values: c.values ? [...c.values] : undefined }));
+
+    // ponytail: Detect if caller provided ANY non-empty query param
+    const hasNonEmptyQueryParams = Object.entries(queryParams).some(([k, v]) => v && v.trim() !== "");
+
+    // ponytail: Override rootConditions values from query params BEFORE seeding
+    // so API callers can override template defaults without creating duplicate AND clauses
+    const rootMeta = getTableMeta(config.rootTable);
+    const overriddenColumns = new Set<string>();
+
+    if (hasNonEmptyQueryParams) {
+      for (const [paramName, paramValue] of Object.entries(queryParams)) {
+        if (!paramValue || paramValue.trim() === "") continue;
+
+        // Strip S1_ prefix if present (root step is always 0)
+        const cleanParam = paramName.replace(/^S1_/i, "");
+
+        // Find matching root condition by column (case-insensitive, supports camelCase/dbColumn/label)
+        const matchedCond = rootConditions.find(c => {
+          if (!rootMeta) return c.column.toLowerCase() === cleanParam.toLowerCase();
+          const colMeta = rootMeta.columns[c.column];
+          if (!colMeta) return c.column.toLowerCase() === cleanParam.toLowerCase();
+          return c.column.toLowerCase() === cleanParam.toLowerCase() ||
+                 colMeta.dbColumn.toLowerCase() === cleanParam.toLowerCase() ||
+                 colMeta.label.toLowerCase() === cleanParam.toLowerCase();
+        });
+
+        if (matchedCond) {
+          // Override value/values based on param format (multi-line/comma = IN, single = eq/like)
+          const hasMultiple = paramValue.includes("\n") || paramValue.includes(",");
+          if (hasMultiple) {
+            matchedCond.operator = "in";
+            matchedCond.values = paramValue.split(/[\n,]+/).map(v => v.trim()).filter(Boolean);
+            matchedCond.value = "";
+          } else {
+            // Keep original operator (like/eq/between) but override value
+            if (matchedCond.operator !== "between") {
+              matchedCond.value = paramValue.trim();
+            }
+          }
+          overriddenColumns.add(matchedCond.column.toLowerCase());
+        }
+      }
+    }
+
+    // ponytail: only seed root if conditions have values — else skip and let BFS pivot backward
+    rootConditions.forEach(c => {
+      // Skip conditions that were overridden with empty/different column query params
+      if (hasNonEmptyQueryParams && !overriddenColumns.has(c.column.toLowerCase())) {
+        // User provided query params but this rootCondition column wasn't touched
+        // → skip it to avoid AND-ing with unrelated query param
+        return;
+      }
+
+      if (c.operator === "in" && (!c.values || c.values.length === 0)) return; // skip empty IN
+      if (c.operator === "between" && (!c.value || !c.value2)) return; // skip empty BETWEEN
+      if (!c.operator || c.operator === "like" || c.operator === "eq") {
+        if (!c.value || c.value.trim() === "" || c.value === "%") return; // skip wildcard/empty
+      }
+      addSeed(0, c);
+    });
 
     // No-prefix param → detect step by scanning columns (root first). -1 if unknown.
     const findStepWithColumn = (cleanCol: string): number => {
@@ -338,11 +572,15 @@ export class EndpointService {
         ? Object.keys(meta.columns).find(k => k.toLowerCase() === colKey.toLowerCase() || meta.columns[k].dbColumn.toLowerCase() === colKey.toLowerCase())
         : undefined;
       const exactKey = matched || colKey;
-      const isSearchable = matched ? meta!.columns[matched].searchable !== false : true;
       const hasMultiple = paramValue.includes("\n") || paramValue.includes(",");
+
+      // ponytail: exact-match patterns (SN, codes, IDs) default to "eq", not "like"
+      const needsExactMatch = /_(no|sn|id|code|dcm|lot|en)$|^(pt|job|part|mc|hookup|aca|bracket|coil|box|store|pallet|magnet)/i.test(colKey);
+      const operator = hasMultiple ? "in" : (needsExactMatch ? "eq" : "like");
+
       return {
         column: exactKey,
-        operator: hasMultiple ? "in" : (isSearchable ? "like" : "eq"),
+        operator,
         value: paramValue,
         values: hasMultiple ? paramValue.split(/[\n,]+/).map(v => v.trim()).filter(Boolean) : undefined,
       };
@@ -371,20 +609,44 @@ export class EndpointService {
         if (stepIdx === -1) continue; // unknown column — skip (allowlist should have filtered)
       }
 
+      // ponytail: skip if this param already overrode a rootCondition above (step 0 only)
+      if (stepIdx === 0) {
+        const alreadyOverridden = rootConditions.some(c => {
+          if (!rootMeta) return c.column.toLowerCase() === colKey.toLowerCase();
+          const colMeta = rootMeta.columns[c.column];
+          if (!colMeta) return c.column.toLowerCase() === colKey.toLowerCase();
+          return c.column.toLowerCase() === colKey.toLowerCase() ||
+                 colMeta.dbColumn.toLowerCase() === colKey.toLowerCase() ||
+                 colMeta.label.toLowerCase() === colKey.toLowerCase();
+        });
+        if (alreadyOverridden) continue; // already seeded via override loop above
+      }
+
       const cond = buildSeedCond(stepIdx, colKey, paramValue);
       const existing = (seedsByStep[stepIdx] || []).find(c => c.column.toLowerCase() === cond.column.toLowerCase());
       if (existing) {
         existing.value = cond.value;
-        existing.operator = cond.operator;
-        if (cond.values) existing.values = cond.values;
+        if (cond.values) {
+          existing.operator = "in";
+          existing.values = cond.values;
+        } else if (existing.operator === "in") {
+          existing.values = [cond.value];
+        } else {
+          // Preserve the Template operator (eq/like/gte/lte/between) when a
+          // caller replaces only its value.
+          existing.values = undefined;
+        }
       } else {
         addSeed(stepIdx, cond);
       }
     }
 
     if (Object.keys(seedsByStep).length === 0) {
-      throw new Error("No search conditions provided. Pass query parameters matching column keys.");
+      throw new Error("Template has no search conditions. Add a condition to the Template before publishing/running its API.");
     }
+
+    // ponytail: no longer require root params — user can seed at any step (S2, S3, etc.)
+    // BFS will pivot backward + forward to complete the chain
 
     // ── 2. Seed each step that has params ──────────────────────────────────────
     const stepRows: Record<number, Record<string, any>[]> = {};
@@ -401,7 +663,7 @@ export class EndpointService {
 
     // ── 3. BFS over hop edges (forward + backward) ─────────────────────────────
     const edges = config.hops.map((hop, i) => ({
-      parentIdx: hop.parentStepIdx ?? i,
+      parentIdx: this.hopSourceStep(hop, i),
       childIdx: i + 1,
       hop,
     }));
@@ -489,18 +751,27 @@ export class EndpointService {
     steps: { table: string; label: string; rows: Record<string, any>[] }[],
     config: EndpointConfig
   ): Record<string, any>[] {
+    config = this.normalizeConfig(config);
     console.log(`[combineSteps] Starting with ${steps.length} steps:`, steps.map((s,i) => `${i}:${s.table}(${s.rows.length})`).join(' '));
     if (steps.length === 0) return [];
-    
-    // Choose master axis (step with most rows)
+
+    // ponytail: choose master that maximizes output rows (fan-out semantics)
+    // Root columns will be LEFT JOINed back via backward pivot if needed
+    const MAX_SEED_THRESHOLD = 100_000;
     let master = steps[0];
     let maxRows = master.rows.length;
+
     steps.forEach((s) => {
-      if (s.rows.length > maxRows) {
+      if (s.rows.length > maxRows && s.rows.length <= MAX_SEED_THRESHOLD) {
         maxRows = s.rows.length;
         master = s;
       }
     });
+
+    if (maxRows === 0 || maxRows > MAX_SEED_THRESHOLD) {
+      master = steps.reduce((min, s) => s.rows.length < min.rows.length ? s : min, steps[0]);
+      maxRows = master.rows.length;
+    }
 
     const baseIdx = steps.indexOf(master);
     const baseRows = master.rows;
@@ -509,10 +780,27 @@ export class EndpointService {
 
     const outputRows = baseRows.map((row) => ({ ...row }));
     const usedColumns = new Set(Object.keys(baseRows[0]));
-    const usedColumnsLower = new Set(Object.keys(baseRows[0]).map(c => c.toLowerCase())); // case-insensitive tracking
+    const usedColumnsLower = new Set(Object.keys(baseRows[0]).map(c => c.toLowerCase()));
     const columnAliases: Record<number, Record<string, string>> = { [baseIdx]: {} };
+
+    // ponytail: alias master step columns with S{N}_ prefix so visibleCols filter can match them
+    const masterAliases: Record<string, string> = {};
     Object.keys(baseRows[0]).forEach((col) => {
-      columnAliases[baseIdx][col] = col;
+      const alias = `S${baseIdx + 1}_${col}`;
+      masterAliases[col] = alias;
+      columnAliases[baseIdx][col] = alias;
+      usedColumns.add(alias);
+      usedColumnsLower.add(alias.toLowerCase());
+    });
+
+    // Rename master row keys to use aliases
+    outputRows.forEach((row) => {
+      Object.keys(row).forEach((col) => {
+        if (masterAliases[col]) {
+          row[masterAliases[col]] = row[col];
+          delete row[col];
+        }
+      });
     });
 
     const joined = new Set([baseIdx]);
@@ -528,7 +816,7 @@ export class EndpointService {
           // Case A: item.idx is child, jIdx is parent
           if (item.idx > 0) {
             const hop = config.hops[item.idx - 1];
-            const pIdx = hop?.parentStepIdx ?? (item.idx - 1);
+            const pIdx = hop ? this.hopSourceStep(hop, item.idx - 1) : (item.idx - 1);
             if (pIdx === jIdx) {
               connectedHop = hop;
               isParentJoined = true;
@@ -539,7 +827,7 @@ export class EndpointService {
           // Case B: jIdx is child, item.idx is parent
           if (jIdx > 0) {
             const hop = config.hops[jIdx - 1];
-            const pIdx = hop?.parentStepIdx ?? (jIdx - 1);
+            const pIdx = hop ? this.hopSourceStep(hop, jIdx - 1) : (jIdx - 1);
             if (pIdx === item.idx) {
               connectedHop = hop;
               isParentJoined = false;
@@ -555,6 +843,7 @@ export class EndpointService {
 
       const { s: step, idx } = pending.splice(pendingIdx, 1)[0];
       joined.add(idx);
+      console.log(`[combineSteps] === Processing step ${idx} (${step.targetTable || step.rootTable}), ${step.rows.length} rows, outputRows currently has ${outputRows.length} rows ===`);
 
       let parentStepIdx = -1;
       let childStepIdx = -1;
@@ -603,10 +892,12 @@ export class EndpointService {
         // Parent is joined (connectStepIdx), child is incoming (idx)
         outputJoinCol = columnAliases[connectStepIdx]?.[leftCol] || leftCol;
         incomingJoinCol = rightCol;
+        console.log(`[combineSteps] Forward join: S${connectStepIdx + 1}[${outputJoinCol}] ← S${idx + 1}[${incomingJoinCol}]`);
       } else {
         // Child is joined (connectStepIdx), parent is incoming (idx)
         outputJoinCol = columnAliases[connectStepIdx]?.[rightCol] || rightCol;
         incomingJoinCol = leftCol;
+        console.log(`[combineSteps] Backward join: S${connectStepIdx + 1}[${outputJoinCol}] → S${idx + 1}[${incomingJoinCol}]`);
       }
 
       const statusCol = `S${idx + 1}_Status`;
@@ -617,75 +908,149 @@ export class EndpointService {
 
       const rowColumns = step.rows.length ? Object.keys(step.rows[0]) : [];
       rowColumns.forEach((col) => {
-        const alias = col === incomingJoinCol || usedColumnsLower.has(col.toLowerCase()) ? `S${idx + 1}_${col}` : col;
+        // ponytail: always prefix non-master steps (S2_, S3_) to show origin, not just duplicates
+        const alias = idx === baseIdx ? col : `S${idx + 1}_${col}`;
         aliases[col] = alias;
         usedColumns.add(alias);
         usedColumnsLower.add(alias.toLowerCase());
       });
 
-      const lookup = new Map();
+      const lookup = new Map<string, any[]>(); // ponytail: one-to-many — each key maps to ARRAY of rows
       step.rows.forEach((row) => {
-        const key = String(row[incomingJoinCol] ?? "").trim();
-        if (key && !lookup.has(key)) lookup.set(key, row);
+        // ponytail: incomingJoinCol is a label — find the actual physical column in row keys (exact match first, then case-insensitive)
+        const physicalCol = rowColumns.find(c => c === incomingJoinCol)
+                         || rowColumns.find(c => c.toLowerCase() === incomingJoinCol.toLowerCase())
+                         || incomingJoinCol;
+        const key = String(row[physicalCol] ?? "").trim();
+        if (key) {
+          if (!lookup.has(key)) lookup.set(key, []);
+          lookup.get(key)!.push(row);
+        }
       });
 
+      // ponytail: fan-out join — when incoming step has multiple rows per key, expand outputRows
+      const expandedRows: any[] = [];
       outputRows.forEach((outRow) => {
-        const key = String(outRow[outputJoinCol] ?? "").trim();
-        const match = key ? lookup.get(key) : undefined;
-        if (match) {
-          outRow[statusCol] = "MATCH";
-          rowColumns.forEach((col) => {
-            outRow[aliases[col]] = match[col];
+        // ponytail: outputJoinCol may be aliased or original — check outputRow keys (exact first, then case-insensitive)
+        const outRowKeys = Object.keys(outRow);
+        const outputPhysicalCol = outRowKeys.find(c => c === outputJoinCol)
+                                || outRowKeys.find(c => c.toLowerCase() === outputJoinCol.toLowerCase())
+                                || outputJoinCol;
+        const key = String(outRow[outputPhysicalCol] ?? "").trim();
+        const matches = key ? lookup.get(key) : undefined;
+
+        if (matches && matches.length > 0) {
+          // Fan-out: create one output row per match
+          matches.forEach((match) => {
+            const newRow = { ...outRow }; // clone current row
+            newRow[statusCol] = "MATCH";
+            rowColumns.forEach((col) => {
+              newRow[aliases[col]] = match[col];
+            });
+            expandedRows.push(newRow);
           });
         } else {
+          // No match: keep original row with null columns
           outRow[statusCol] = "NA (WIP)";
           rowColumns.forEach((col) => {
             outRow[aliases[col]] = null;
           });
+          expandedRows.push(outRow);
         }
       });
+
+      // Replace outputRows with expanded version
+      console.log(`[combineSteps] After join step ${idx}: outputRows.length before=${outputRows.length}, expandedRows.length=${expandedRows.length}`);
+      console.log(`[combineSteps]   expandedRows[0] S3_pt_no=${expandedRows[0]?.['S3_pt_no']}, expandedRows[1] S3_pt_no=${expandedRows[1]?.['S3_pt_no']}, expandedRows[2] S3_pt_no=${expandedRows[2]?.['S3_pt_no']}`);
+
+      // Debug: check all expanded rows
+      if (expandedRows.length > 1) {
+        const debugInfo = expandedRows.map((r, i) => ({
+          rowIdx: i,
+          hasS3_pt_no: !!r['S3_pt_no'],
+          S3_pt_no: r['S3_pt_no'],
+          keys: Object.keys(r).filter(k => k.startsWith('S3_')).slice(0, 3)
+        }));
+        console.log(`[combineSteps] Debug expandedRows:`, JSON.stringify(debugInfo, null, 2));
+      }
+
+      outputRows.splice(0, outputRows.length, ...expandedRows);
     }
 
-    // Filter by visible cols if specified (with dynamic alias fallback for consistent schema keys)
+    // Filter by visible cols if specified
+    console.log(`[combineSteps] Before visibleCols filter: outputRows.length=${outputRows.length}, row[0] has S3_pt_no=${!!outputRows[0]?.['S3_pt_no']}, row[1] has S3_pt_no=${!!outputRows[1]?.['S3_pt_no']}, row[2] has S3_pt_no=${!!outputRows[2]?.['S3_pt_no']}`);
+
     if (config.visibleCols && config.visibleCols.length > 0) {
-      const masterIdx = baseIdx;
-      const filtered = outputRows.map((row) => {
+      const filtered = outputRows.map((row, rowIdx) => {
         const newRow: Record<string, any> = {};
+
         config.visibleCols!.forEach((col) => {
-          // Parse col name to find stepIdx and original column name
-          const match = col.match(/^S(\d+)_(.+)$/);
-          let stepIdx = 0;
-          let origCol = col;
-          if (match) {
-            stepIdx = parseInt(match[1], 10) - 1;
-            origCol = match[2];
+          // Debug first 3 rows for S3_pt_no
+          const debugThis = rowIdx < 3 && col === 'S3_pt_no';
+          if (debugThis) {
+            console.log(`[filter] row ${rowIdx}, looking for '${col}' in keys:`, Object.keys(row).filter(k => k.includes('pt_no')));
+          }
+          // Try exact match first (handles physical names like "pt_no" or "S2_store_lot")
+          if (row[col] !== undefined) {
+            if (debugThis) console.log(`[filter]   → found exact match: row['${col}'] = ${row[col]}`);
+            newRow[col] = row[col];
+            return;
+          } else if (debugThis) {
+            console.log(`[filter]   → row['${col}'] is undefined`);
           }
 
-          // Determine the runtime key in combined row
-          const runtimeKey = stepIdx === masterIdx ? origCol : `S${stepIdx + 1}_${origCol}`;
+          // Parse step prefix if present (e.g., "S2_storeLot" → stepIdx=1, origCol="storeLot")
+          const prefixMatch = col.match(/^S(\d+)_(.+)$/);
+          if (prefixMatch) {
+            const stepIdx = parseInt(prefixMatch[1], 10) - 1;
+            const origCol = prefixMatch[2];
 
-          if (row[runtimeKey] !== undefined) {
-            newRow[col] = row[runtimeKey];
-          } else {
-            // Fallback: search across all step prefix variants
-            let foundVal: any = undefined;
-            if (row[col] !== undefined) {
-              foundVal = row[col];
-            } else {
-              for (let i = 1; i <= steps.length; i++) {
-                const prefixedKey = `S${i}_${col}`;
-                if (row[prefixedKey] !== undefined) {
-                  foundVal = row[prefixedKey];
-                  break;
-                }
+            // Try with prefix first
+            const withPrefix = `S${stepIdx + 1}_${origCol}`;
+            if (row[withPrefix] !== undefined) {
+              newRow[col] = row[withPrefix];
+              return;
+            }
+
+            // If this column is from master step, try unprefixed
+            if (stepIdx === baseIdx && row[origCol] !== undefined) {
+              newRow[col] = row[origCol];
+              return;
+            }
+          }
+
+          // Fallback: search all possible runtime keys for this column
+          // (handles registry keys like "ptNo" that may exist as "pt_no" or "S2_pt_no")
+          let found = false;
+
+          // 1. Try unprefixed (master step columns)
+          if (row[col] !== undefined) {
+            newRow[col] = row[col];
+            found = true;
+          }
+
+          // 2. Try all step prefixes
+          if (!found) {
+            for (let i = 0; i <= steps.length; i++) {
+              const prefixed = `S${i + 1}_${col}`;
+              if (row[prefixed] !== undefined) {
+                newRow[col] = row[prefixed];
+                found = true;
+                break;
               }
             }
-            newRow[col] = foundVal !== undefined ? foundVal : null;
+          }
+
+          // 3. Not found → null
+          if (!found) {
+            newRow[col] = null;
           }
         });
+
         return newRow;
       });
-      console.log(`[combineSteps] Filtered by visibleCols, returning ${filtered.length} rows`);
+
+      console.log(`[combineSteps] Filtered to ${config.visibleCols.length} cols, returning ${filtered.length} rows`);
       return filtered;
     }
 

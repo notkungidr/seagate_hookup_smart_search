@@ -43,6 +43,17 @@
       >
         <el-icon><Setting /></el-icon>&nbsp;Manage
       </el-button>
+
+      <el-button
+        v-if="adminUser?.permission === 'admin'"
+        size="default"
+        type="success"
+        :disabled="!selectedTemplate"
+        @click="emit('open-save-api-dialog', selectedTemplate)"
+        title="Publish the selected saved Template as an external API"
+      >
+        💾 Publish API
+      </el-button>
     </div>
 
     <!-- ── Master Chain Conditions Editor (premium glassmorphic card) ────── -->
@@ -432,6 +443,7 @@ const props = defineProps({
   searchForm:   { type: Object, required: true },
   nextUid:      { type: Function, required: true },
   visibleCombinedCols: { type: Array, required: true },
+  combinedColSteps: { type: Object, default: () => ({}) }, // map: columnName → stepIndex
   adminUser:    { type: Object, default: null }
 });
 
@@ -646,7 +658,7 @@ async function onRun(bypassLimit = false) {
       );
 
       // User confirmed → open save dialog
-      emit('open-save-api-dialog');
+      emit('open-save-api-dialog', selectedTemplate.value);
 
     } catch (action) {
       if (action === 'cancel') {
@@ -713,12 +725,27 @@ async function remoteSearchEmployees(query) {
 }
 
 function openSaveModal() {
+  const chain = readChain();
+  const form = props.searchForm.value || props.searchForm;
+
+  console.log('[openSaveModal] Debug:', {
+    chainLength: chain.length,
+    chainSteps: chain,
+    searchForm: form,
+    visibleCols: props.visibleCombinedCols,
+    colSteps: props.combinedColSteps,
+  });
+
   const captured = buildTemplateFromCurrentChain({
-    searchForm: props.searchForm.value || props.searchForm,
-    chainSteps: readChain(),
+    searchForm: form,
+    chainSteps: chain,
     tablesMeta: props.tablesMeta,
     visibleCombinedCols: props.visibleCombinedCols,
+    combinedColSteps: props.combinedColSteps,
   });
+
+  console.log('[openSaveModal] Captured:', captured);
+
   if (!captured) {
     ElMessage.warning('ไม่สามารถจับ path ปัจจุบันได้ — โปรดทำ Search/Pivot อย่างน้อย 1 ครั้งก่อน');
     return;

@@ -177,6 +177,8 @@ export function useCombinedRows({
       master = steps.find((item) => item.idx === manualCombineMasterIdx.value);
     }
     if (!master) {
+      // ponytail: choose master that maximizes output rows (fan-out join semantics)
+      // Root columns will be LEFT JOINed back and duplicated across child rows
       let maxRows = -1;
       steps.forEach((item) => {
         if (item.rows.length > maxRows) {
@@ -286,7 +288,8 @@ export function useCombinedRows({
       const aliases = {};
       columnAliases[idx] = aliases;
       rowColumns.forEach((col) => {
-        const alias = col === incomingJoinCol || usedColumnsLower.has(col.toLowerCase()) ? `S${idx + 1}_${col}` : col;
+        // ponytail: always prefix non-root steps to show origin (S2_, S3_), not just duplicates
+        const alias = idx === baseIdx ? col : `S${idx + 1}_${col}`;
         aliases[col] = alias;
         usedColumns.add(alias);
         usedColumnsLower.add(alias.toLowerCase());

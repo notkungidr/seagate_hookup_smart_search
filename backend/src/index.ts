@@ -46,24 +46,18 @@ async function resolveViewer(headers: Record<string, string | undefined>): Promi
 }
 
 /**
- * Admission check for /v1/trace params. Prefix-aware: a `S<n>_col` param is
- * admitted if allowedParams/rootColumns list either `S<n>_col` or the bare `col`
- * (case-insensitive). The original param key is forwarded as-is so runChain can
- * honor the step-pinning prefix.
+ * Admission check for /v1/trace params. Step prefixes are exact bindings:
+ * `S2_col` cannot be substituted with `S3_col` or bare `col`. Root conditions
+ * also allow bare keys (and explicit S1_ keys) for backwards compatibility.
  */
 function paramMatchesAllowed(paramName: string, rootColumns: Set<string>, allowedList: string[]): boolean {
   const pLower = paramName.toLowerCase();
   const pPrefix = paramName.match(/^S(\d+)_(.+)$/i);
-  const pCore = pPrefix ? pPrefix[2].toLowerCase() : pLower;
-  if (rootColumns.has(pLower) || rootColumns.has(pCore)) return true;
-  if (allowedList.length === 0) return true;
-  return allowedList.some((p) => {
-    const eLower = p.toLowerCase();
-    if (eLower === pLower) return true;
-    const ePrefix = p.match(/^S(\d+)_(.+)$/i);
-    const eCore = ePrefix ? ePrefix[2].toLowerCase() : eLower;
-    return eLower === pCore || eCore === pCore;
-  });
+  // A step prefix is a real binding, not decoration. Never admit S3_field
+  // merely because S2_field (or bare field) was allowed.
+  if (!pPrefix && rootColumns.has(pLower)) return true;
+  if (pPrefix && Number(pPrefix[1]) === 1 && rootColumns.has(pPrefix[2].toLowerCase())) return true;
+  return allowedList.some((p) => p.toLowerCase() === pLower);
 }
 
 // ── CORS & Swagger ─────────────────────────────────────────────────────────
@@ -530,8 +524,56 @@ const apiRoutes = new Elysia()
         return { success: false, message: "รหัสพนักงานไม่อยู่ในระบบ ไม่สามารถสร้าง API ได้" };
       }
       const payload: any = body;
+      const templateId = String(payload.templateId || "").trim();
+      if (!templateId) {
+        set.status = 400;
+        return {
+          success: false,
+          message: "Create and save a Template first, then publish that Template as an API endpoint (templateId is required).",
+        };
+      }
+      const template = await templateService.getById(templateId);
+      if (!template) {
+        set.status = 404;
+        return { success: false, message: `Template "${templateId}" not found.` };
+      }
+      const endpointId = String(payload.id || "").trim();
+      const endpointName = String(payload.name || "").trim();
+      if (!endpointId || !endpointName) {
+        set.status = 400;
+        return { success: false, message: "Endpoint id and name are required." };
+      }
+      const endpointConfig = endpointService.buildConfigFromTemplate(template, {
+        visibleCols: Array.isArray(payload.visibleCols) ? payload.visibleCols : undefined,
+        allowedParams: Array.isArray(payload.allowedParams) ? payload.allowedParams : undefined,
+      });
+
+      // Publishing the same slug again intentionally repairs/rebuilds the
+      // existing API from the selected Template while preserving its URL.
+      const existingEndpoint = await endpointService.getById(endpointId);
+      if (existingEndpoint) {
+        if (user.permission !== "admin" && existingEndpoint.createdBy !== user.en) {
+          set.status = 403;
+          return { success: false, message: "You cannot republish an endpoint owned by another user." };
+        }
+        const result = await endpointService.update(endpointId, {
+          name: endpointName,
+          description: payload.description || "",
+          config: endpointConfig,
+          visibility: payload.visibility === "restricted" ? "restricted" : "public",
+          apiGroup: payload.apiGroup || "General",
+          allowedUsers: Array.isArray(payload.allowedUsers) ? payload.allowedUsers : [],
+        });
+        return { success: true, data: result, republished: true };
+      }
+
       const result = await endpointService.create({
-        ...payload,
+        id: endpointId,
+        name: endpointName,
+        description: payload.description || "",
+        config: endpointConfig,
+        createdAt: "",
+        updatedAt: "",
         createdBy: user.en,
         visibility: payload.visibility === "restricted" ? "restricted" : "public",
         apiGroup: payload.apiGroup || "General",
@@ -561,7 +603,12 @@ const apiRoutes = new Elysia()
         set.status = 403;
         return { success: false, message: "คุณไม่ใช่ผู้สร้าง API นี้ จึงไม่สามารถแก้ไขได้" };
       }
-      const result = await endpointService.update(params.id, body as any);
+      const requestedPatch: any = body && typeof body === "object" ? body : {};
+      // Chain definitions are immutable snapshots cloned from Templates. The
+      // generic metadata PUT route must not let clients reintroduce hand-built
+      // table/field/hop configs.
+      const { config: _ignoredConfig, id: _ignoredId, createdBy: _ignoredCreatedBy, ...safePatch } = requestedPatch;
+      const result = await endpointService.update(params.id, safePatch);
       return { success: true, data: result };
     } catch (err: any) {
       set.status = 400;
@@ -645,6 +692,10 @@ const apiRoutes = new Elysia()
       // 3. Filter combined rows in-memory by query parameters (exact/substring/multi-value search with dynamic alias fallback)
       let filteredRows = combinedRows;
       for (const [paramName, paramValue] of Object.entries(allowedSearchParams)) {
+        // Registry-bound params were already applied by SearchService on their
+        // exact step. Re-filtering the projected grid can target the wrong
+        // duplicate column (or a hidden column) and incorrectly erase results.
+        if (endpointService.isDatabaseParameter(ep.config, paramName)) continue;
         const rawString = String(paramValue).trim();
         const valList = rawString.split(/[\n,]+/).map(v => v.trim().toLowerCase()).filter(Boolean);
         if (valList.length === 0) continue;
@@ -771,6 +822,7 @@ const apiRoutes = new Elysia()
       // 3. Filter combined rows in-memory by query parameters (exact/substring/multi-value search with dynamic alias fallback)
       let filteredRows = combinedRows;
       for (const [paramName, paramValue] of Object.entries(allowedSearchParams)) {
+        if (endpointService.isDatabaseParameter(ep.config, paramName)) continue;
         const rawString = String(paramValue).trim();
         const valList = rawString.split(/[\n,]+/).map(v => v.trim().toLowerCase()).filter(Boolean);
         if (valList.length === 0) continue;

@@ -251,12 +251,14 @@ export function useQueryTemplates(apiBase) {
    * Capture current TraceabilityFlow chain into a (yet-unsaved) template draft.
    *
    * @param {object} args
-   * @param {object} args.searchForm    — TraceabilityFlow.searchForm.value
-   * @param {Array}  args.chainSteps    — TraceabilityFlow.chainSteps.value
-   * @param {Array}  args.tablesMeta    — TraceabilityFlow.tablesMeta.value
-   * @returns {object|null}             draft template (no id) or null if chain invalid
+   * @param {object} args.searchForm         — TraceabilityFlow.searchForm.value
+   * @param {Array}  args.chainSteps         — TraceabilityFlow.chainSteps.value
+   * @param {Array}  args.tablesMeta         — TraceabilityFlow.tablesMeta.value
+   * @param {Array}  args.visibleCombinedCols — selected columns from combined view
+   * @param {object} args.combinedColSteps   — map of column → stepIndex (from buildCombinedRows)
+   * @returns {object|null}                  draft template (no id) or null if chain invalid
    */
-  function buildTemplateFromCurrentChain({ searchForm, chainSteps, tablesMeta, visibleCombinedCols }) {
+  function buildTemplateFromCurrentChain({ searchForm, chainSteps, tablesMeta, visibleCombinedCols, combinedColSteps }) {
     if (!chainSteps?.length) return null;
 
     const root = chainSteps[0];
@@ -289,14 +291,33 @@ export function useQueryTemplates(apiBase) {
       });
     }
 
+    // ponytail: normalize favoriteColumns — ensure every non-root column has S<n>_ prefix
+    // Use combinedColSteps (from buildCombinedRows) to know which step each column came from
+    const normalizedFavorites = (visibleCombinedCols || []).map(colName => {
+      // If already prefixed (S3_pt_no), keep as-is
+      if (/^S\d+_/.test(colName)) return colName;
+
+      // Use combinedColSteps to find which step this column originated from
+      const stepIdx = combinedColSteps?.[colName];
+      if (stepIdx !== undefined && stepIdx !== null) {
+        // Root step (0): no prefix; others: add S<n>_ prefix
+        return stepIdx === 0 ? colName : `S${stepIdx + 1}_${colName}`;
+      }
+
+      // Fallback: if no step info, assume root
+      return colName;
+    });
+
+    const stepsChain = [rootTableKey, ...hops.map(h => h.targetTable)];
+
     return {
       rootTable: rootTableKey,
       rootColumn: firstCond.column,                                    // legacy / back-compat
       rootOperator: firstCond.operator === 'eq' ? 'eq' : 'like',         // legacy / back-compat
       rootConditions: sanitizeConditions(conds),                         // FULL multi-condition snapshot
       hops,
-      stepsChain: [rootTableKey, ...hops.map(h => h.targetTable)],
-      favoriteColumns: visibleCombinedCols || [],
+      stepsChain,
+      favoriteColumns: normalizedFavorites,
     };
   }
 
@@ -540,6 +561,7 @@ export async function runTemplateChain({
     columnLabel: colLabels,
     value: valLabels,
     operator: opLabel,
+    _searchConditions: JSON.parse(JSON.stringify(uiConds)), // ponytail: snapshot for buildTemplateFromCurrentChain
   });
   flush();
   onStepDone(startStepIdx, steps[startStepIdx]);

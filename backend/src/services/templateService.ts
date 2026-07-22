@@ -163,6 +163,42 @@ export class TemplateService {
   }
 
   /**
+   * Fetch one canonical template by id.
+   *
+   * Endpoint publishing uses this method so the backend, rather than the
+   * browser's current UI state, is the source of truth for the saved chain.
+   */
+  async getById(id: string) {
+    const rows = await dbSeagateDev
+      .select()
+      .from(queryTemplates)
+      .where(eq(queryTemplates.id, id))
+      .limit(1);
+
+    if (rows.length === 0) return null;
+
+    const r = rows[0];
+    const allowedUsers = await this.fetchAllowedUsers(id);
+    return {
+      id: r.id,
+      name: r.name,
+      description: r.description || "",
+      rootTable: r.rootTable,
+      rootColumn: r.rootColumn,
+      rootOperator: r.rootOperator,
+      rootConditions: r.rootConditions ? JSON.parse(r.rootConditions) : [],
+      hops: r.hops ? JSON.parse(r.hops) : [],
+      stepsChain: r.stepsChain ? JSON.parse(r.stepsChain) : [],
+      favoriteColumns: r.favoriteColumns ? JSON.parse(r.favoriteColumns) : [],
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+      createdBy: r.createdBy || "",
+      visibility: r.visibility || "public",
+      allowedUsers,
+    };
+  }
+
+  /**
    * Save (Insert/Upsert) a new template.
    */
   async save(tpl: any) {

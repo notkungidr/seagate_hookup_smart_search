@@ -89,6 +89,9 @@
             <div class="meta-info">
               <el-tag size="small" type="info">Endpoint ID: {{ selectedEp.id }}</el-tag>
               <el-tag size="small" type="success">Root Table: {{ selectedEp.config.rootTable }}</el-tag>
+              <el-tag v-if="selectedEp.config.sourceTemplateId" size="small" type="primary">
+                Template: {{ selectedEp.config.sourceTemplateId }}
+              </el-tag>
               <el-tag size="small" type="warning">Group: {{ selectedEp.apiGroup || 'General' }}</el-tag>
               <el-tag size="small" :type="selectedEp.visibility === 'restricted' ? 'danger' : 'success'">
                 {{ selectedEp.visibility === 'restricted' ? '🔒 Restricted' : '🌍 Public' }}
@@ -485,7 +488,25 @@ async function remoteSearchEmployees(query) {
 
 const allowedParamsList = computed(() => {
   if (!selectedEp.value || !selectedEp.value.config) return [];
-  return selectedEp.value.config.allowedParams || [];
+
+  const params = new Set();
+
+  // 1. Add explicitly allowed params
+  if (selectedEp.value.config.allowedParams) {
+    selectedEp.value.config.allowedParams.forEach(p => params.add(p));
+  }
+
+  // 2. Add root condition columns (backend accepts these even if not in allowedParams)
+  if (selectedEp.value.config.rootColumn) {
+    params.add(selectedEp.value.config.rootColumn);
+  }
+  if (selectedEp.value.config.rootConditions) {
+    selectedEp.value.config.rootConditions.forEach(c => {
+      if (c.column) params.add(c.column);
+    });
+  }
+
+  return Array.from(params).sort();
 });
 
 const canEditSelected = computed(() => {
