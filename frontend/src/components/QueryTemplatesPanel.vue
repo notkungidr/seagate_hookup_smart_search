@@ -157,7 +157,19 @@
 
               <!-- BETWEEN -->
               <template v-else-if="cond.operator === 'between'">
-                <div v-if="isDateColumnKey(cond.column)">
+                <div v-if="isDateTimeColumnName(cond.column)">
+                  <el-date-picker
+                    v-model="cond.dateRange"
+                    type="datetimerange"
+                    range-separator="ถึง"
+                    start-placeholder="จากวันที่เวลา"
+                    end-placeholder="ถึงวันที่เวลา"
+                    value-format="YYYY-MM-DD HH:mm:ss"
+                    size="default"
+                    style="width:100%"
+                  />
+                </div>
+                <div v-else-if="isDateColumnKey(cond.column)">
                   <el-date-picker
                     v-model="cond.dateRange"
                     type="daterange"
@@ -182,6 +194,18 @@
                   <span class="qt-between-sep">~</span>
                   <el-input v-model="cond.value2" placeholder="ถึง..." size="default" />
                 </div>
+              </template>
+
+              <!-- gte/lte/like/eq on datetime column (dt$) -->
+              <template v-else-if="isDateTimeColumnName(cond.column)">
+                <el-date-picker
+                  v-model="cond.value"
+                  type="datetime"
+                  placeholder="เลือกวันที่เวลา"
+                  value-format="YYYY-MM-DD HH:mm:ss"
+                  size="default"
+                  style="width:100%"
+                />
               </template>
 
               <!-- gte/lte/like/eq on date column -->
@@ -435,6 +459,7 @@ import { ref, computed, watch, markRaw } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { VideoPlay, Plus, Setting, Edit, Delete, Close } from '@element-plus/icons-vue';
 import { useQueryTemplates, runTemplateChain, recalculateHops } from '../composables/useQueryTemplates';
+import { isDateColumnName as isDateColumnKey, isDateTimeColumnName } from '../utils/dateTime.js';
 
 const props = defineProps({
   apiBase:      { type: String, required: true },
@@ -503,14 +528,7 @@ function tableLabel(tableKey) {
   const t = props.tablesMeta.find(x => x.key === tableKey);
   return t ? t.label : tableKey;
 }
-function isDateColumnKey(key) {
-  if (!key) return false;
-  const normalized = key.toLowerCase();
-  if (normalized.includes('user_reg') || normalized.includes('user_upd') || normalized.includes('userreg') || normalized.includes('userupd')) {
-    return false;
-  }
-  return normalized.includes('date') || normalized.includes('time') || normalized.includes('crdt') || normalized === 'reg' || normalized === 'upd';
-}
+// isDateColumnKey / isDateTimeColumnName ย้ายไป utils/dateTime.js (เดิมสำเนา 3 จุด) — create_dt เข้า /dt$ แล้ว
 
 function applyDatePreset(cond, preset) {
   const today = new Date();

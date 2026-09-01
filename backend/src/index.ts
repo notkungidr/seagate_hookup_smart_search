@@ -7,6 +7,7 @@ import { PivotService } from "./services/pivotService";
 import { TemplateService } from "./services/templateService";
 import { EndpointService } from "./services/endpointService";
 import { RegistryService } from "./services/registryService";
+import { ConnectionRegistryService } from "./services/connectionRegistryService";
 import { getTablesSummary } from "./config/tableRegistry";
 import { BATCH_SIZE } from "./config/appConfig";
 
@@ -16,13 +17,26 @@ const pivotService = new PivotService();
 const templateService = new TemplateService();
 const endpointService = new EndpointService();
 const registryService = new RegistryService();
+const connectionRegistryService = new ConnectionRegistryService();
 
 // Ensure the shared templates and dynamic tables exist on server startup
 await templateService.ensureTableExists();
 await endpointService.ensureTableExists();
 await registryService.ensureTableExists();
 await registryService.ensureUsersTableExists(); // 🆕 Check/create & seed user control list
-await registryService.reloadDynamicRegistry();
+await connectionRegistryService.ensureConnectionsTableExists(); // 🆕 Dynamic DB connections added from UI
+try {
+  // โหลดก่อน reloadDynamicRegistry เพื่อให้เห็น connection ใหม่ตั้งแต่ request แรก
+  // ponytail: try/catch — SeagateDev ล่ม/ตารางยังไม่เกิด ต้องไม่ทำ server ทั้งตัว boot ไม่ขึ้น
+  await connectionRegistryService.loadAndApply();
+} catch (bootErr: any) {
+  console.error("⚠️ loadAndApply (registry_connections) failed — รันต่อด้วย static connections:", bootErr?.message || bootErr);
+}
+try {
+  await registryService.reloadDynamicRegistry();
+} catch (bootErr: any) {
+  console.error("⚠️ reloadDynamicRegistry (registry_tables) failed — รันต่อด้วย static tables:", bootErr?.message || bootErr);
+}
 
 // 🆕 Helper: Validate admin employee number (EN) against the DB
 async function verifyAdmin(headers: Record<string, string | undefined>): Promise<void> {
@@ -34,6 +48,17 @@ async function verifyAdmin(headers: Record<string, string | undefined>): Promise
   if (!user || user.permission !== "admin") {
     throw new Error("401:คุณไม่มีสิทธิ์ผู้ใช้ระดับ Admin เพื่อเข้าถึงฟังก์ชันนี้");
   }
+}
+
+// 🆕 Helper: แปลงค่าเซลล์สำหรับ CSV — Date จาก mysql2 → "YYYY-MM-DD HH:mm:ss"
+// (getHours() ใช้ timezone ของ server ซึ่งตรงกับ wall clock ที่เก็บใน DB)
+function csvCell(v: unknown): string {
+  if (v == null) return "";
+  if (v instanceof Date) {
+    const p = (n: number) => String(n).padStart(2, "0");
+    return `${v.getFullYear()}-${p(v.getMonth() + 1)}-${p(v.getDate())} ${p(v.getHours())}:${p(v.getMinutes())}:${p(v.getSeconds())}`;
+  }
+  return String(v);
 }
 
 // 🆕 Helper: resolve viewer (any registered user) from x-user-en — returns null when header is missing/unknown
@@ -84,6 +109,7 @@ const apiRoutes = new Elysia()
   .get("/tables", async () => {
     try {
       await registryService.reloadDynamicRegistry(); // Keep cache in sync across multiple server instances (e.g. Localhost vs Prod)
+      await connectionRegistryService.loadAndApply(); // Sync dynamic connections too (config map only — pools rebuild lazily)
     } catch (err: any) {
       console.error("❌ Failed to reload dynamic registry on GET /tables:", err.message);
     }
@@ -305,12 +331,17 @@ const apiRoutes = new Elysia()
     }
   })
 
-  // ── POST /registry/preview-columns ────────────────────────────────────────
-  .post("/registry/preview-columns", async ({ body, set }) => {
+  // ── POST /registry/preview-columns (admin-only: รับ connection key จากภายนอก) ──
+  .post("/registry/preview-columns", async ({ body, headers, set }) => {
     try {
+      await verifyAdmin(headers);
       const data = await registryService.previewColumns(body.connectionKey, body.tableName);
       return { success: true, data };
     } catch (err: any) {
+      if (err.message.startsWith("401:")) {
+        set.status = 401;
+        return { success: false, message: err.message.substring(4) };
+      }
       set.status = 400;
       return { success: false, message: err.message };
     }
@@ -321,9 +352,10 @@ const apiRoutes = new Elysia()
     })
   })
 
-  // ── POST /registry/test-query ─────────────────────────────────────────────
-  .post("/registry/test-query", async ({ body, set }) => {
+  // ── POST /registry/test-query (admin-only: รับ SQL จากภายนอก) ─────────────
+  .post("/registry/test-query", async ({ body, headers, set }) => {
     try {
+      await verifyAdmin(headers);
       const result = await registryService.testQuery(
         body.connectionKey,
         body.sql,
@@ -331,6 +363,10 @@ const apiRoutes = new Elysia()
       );
       return { success: true, data: result.rows, tookMs: result.tookMs };
     } catch (err: any) {
+      if (err.message.startsWith("401:")) {
+        set.status = 401;
+        return { success: false, message: err.message.substring(4) };
+      }
       set.status = 400;
       return { success: false, message: err.message };
     }
@@ -346,8 +382,110 @@ const apiRoutes = new Elysia()
   .post("/registry/reload", async ({ headers, set }) => {
     try {
       await verifyAdmin(headers);
+      await connectionRegistryService.loadAndApply();
       await registryService.reloadDynamicRegistry();
       return { success: true };
+    } catch (err: any) {
+      if (err.message.startsWith("401:")) {
+        set.status = 401;
+        return { success: false, message: err.message.substring(4) };
+      }
+      set.status = 400;
+      return { success: false, message: err.message };
+    }
+  })
+
+  // ── GET /registry/connections (list — password ไม่มีวันออกจาก endpoint นี้) ──
+  .get("/registry/connections", async ({ headers, set }) => {
+    try {
+      await verifyAdmin(headers);
+      const data = await connectionRegistryService.list();
+      return { success: true, data };
+    } catch (err: any) {
+      if (err.message.startsWith("401:")) {
+        set.status = 401;
+        return { success: false, message: err.message.substring(4) };
+      }
+      set.status = 400;
+      return { success: false, message: err.message };
+    }
+  })
+
+  // ── POST /registry/connections ────────────────────────────────────────────
+  .post("/registry/connections", async ({ body, headers, set }) => {
+    try {
+      await verifyAdmin(headers);
+      await connectionRegistryService.create(body);
+      return { success: true };
+    } catch (err: any) {
+      if (err.message.startsWith("401:")) {
+        set.status = 401;
+        return { success: false, message: err.message.substring(4) };
+      }
+      set.status = 400;
+      return { success: false, message: err.message };
+    }
+  }, {
+    body: t.Object({
+      id: t.String({ minLength: 1 }),
+      label: t.Optional(t.String()),
+      host: t.String({ minLength: 1 }),
+      port: t.Optional(t.Number()),
+      user: t.String({ minLength: 1 }),
+      password: t.String({ minLength: 1 }),
+      dbName: t.Optional(t.Union([t.String(), t.Null()])),
+      isActive: t.Optional(t.Boolean()),
+    })
+  })
+
+  // ── PUT /registry/connections/:id (password ว่าง = คงรหัสเดิม) ─────────────
+  .put("/registry/connections/:id", async ({ params, body, headers, set }) => {
+    try {
+      await verifyAdmin(headers);
+      await connectionRegistryService.update(params.id, body);
+      return { success: true };
+    } catch (err: any) {
+      if (err.message.startsWith("401:")) {
+        set.status = 401;
+        return { success: false, message: err.message.substring(4) };
+      }
+      set.status = 400;
+      return { success: false, message: err.message };
+    }
+  }, {
+    body: t.Object({
+      label: t.Optional(t.String()),
+      host: t.Optional(t.String({ minLength: 1 })),
+      port: t.Optional(t.Number()),
+      user: t.Optional(t.String({ minLength: 1 })),
+      password: t.Optional(t.String()),
+      dbName: t.Optional(t.Union([t.String(), t.Null()])),
+      isActive: t.Optional(t.Boolean()),
+    })
+  })
+
+  // ── DELETE /registry/connections/:id ──────────────────────────────────────
+  .delete("/registry/connections/:id", async ({ params, headers, set }) => {
+    try {
+      await verifyAdmin(headers);
+      await connectionRegistryService.delete(params.id);
+      return { success: true };
+    } catch (err: any) {
+      if (err.message.startsWith("401:")) {
+        set.status = 401;
+        return { success: false, message: err.message.substring(4) };
+      }
+      set.status = 400;
+      return { success: false, message: err.message };
+    }
+  })
+
+  // ── POST /registry/connections/:id/test ───────────────────────────────────
+  .post("/registry/connections/:id/test", async ({ params, headers, set }) => {
+    try {
+      await verifyAdmin(headers);
+      const result = await connectionRegistryService.testConnection(params.id);
+      return { success: true, ...result };
     } catch (err: any) {
       if (err.message.startsWith("401:")) {
         set.status = 401;
@@ -732,7 +870,7 @@ const apiRoutes = new Elysia()
           headers.join(","),
           ...filteredRows.map(row =>
             headers.map(h => {
-              const v = row[h] == null ? "" : String(row[h]);
+              const v = csvCell(row[h]);
               return v.includes(",") || v.includes('"') || v.includes("\n")
                 ? `"${v.replace(/"/g, '""')}"`
                 : v;
@@ -860,7 +998,7 @@ const apiRoutes = new Elysia()
           headers.join(","),
           ...filteredRows.map(row =>
             headers.map(h => {
-              const v = row[h] == null ? "" : String(row[h]);
+              const v = csvCell(row[h]);
               return v.includes(",") || v.includes('"') || v.includes("\n")
                 ? `"${v.replace(/"/g, '""')}"`
                 : v;

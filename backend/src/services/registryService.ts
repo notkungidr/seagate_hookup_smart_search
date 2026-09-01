@@ -1,11 +1,13 @@
-import { dbSeagateDev, getRawPool, CONNECTION_CONFIGS, DbKey } from "../db/client";
+import { dbSeagateDev, getRawPool, resolveConnConfig } from "../db/client";
 import { registryTables, registryUsers } from "../db/schema";
 import { eq, sql, inArray } from "drizzle-orm";
-import { TABLE_REGISTRY, TableMeta, ColumnMeta, CustomSqlConfig, setDynamicRegistry } from "../config/tableRegistry";
+import { TABLE_REGISTRY, TableMeta, ColumnMeta, CustomSqlConfig, setDynamicRegistry, quoteTableRef } from "../config/tableRegistry";
 
 export interface DynamicTableRow {
   id: string;
   tableName: string;
+  /** ชื่อตารางฟิสิคัลใน MySQL (รองรับ DB.TABLE สำหรับ connection ที่ไม่มี Default Database) — ไม่ระบุ = ใช้ tableName */
+  dbTable?: string | null;
   label: string;
   connectionKey: string;
   customSql: CustomSqlConfig | null;
@@ -25,6 +27,7 @@ export class RegistryService {
         CREATE TABLE IF NOT EXISTS registry_tables (
           id VARCHAR(64) PRIMARY KEY,
           table_name VARCHAR(100) NOT NULL,
+          db_table VARCHAR(200) NULL,
           label VARCHAR(200) NOT NULL,
           connection_key VARCHAR(50) NOT NULL DEFAULT 'seagate',
           custom_sql TEXT NULL,
@@ -36,6 +39,17 @@ export class RegistryService {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8
       `);
       console.log("✅ MySQL database (SeagateDev): checked/created 'registry_tables' table.");
+
+      // Migration: เพิ่มคอลัมน์ db_table (ชื่อฟิสิคัลรองรับ DB.TABLE) สำหรับเครื่องที่สร้างตารางไว้ก่อนแล้ว
+      try {
+        await dbSeagateDev.execute(sql.raw(`ALTER TABLE registry_tables ADD COLUMN db_table VARCHAR(200) NULL`));
+        console.log("🔧 Added 'db_table' column to registry_tables (physical DB.TABLE support).");
+      } catch (alterErr: any) {
+        // ข้ามถ้าคอลัมน์มีอยู่แล้ว (MySQL error 1060: Duplicate column name)
+        if (!/duplicate column|1060/i.test(alterErr?.message || "")) {
+          console.warn("⚠️ Could not add 'db_table' column:", alterErr?.message || alterErr);
+        }
+      }
 
       // Migration: Drop old UNIQUE constraint on table_name if it exists
       try {
@@ -96,24 +110,32 @@ export class RegistryService {
    * Validate user inputs for table schema.
    */
   private validateInput(input: any, isUpdate = false, existingId?: string, allowShadow = false): void {
-    const tableReg = /^[A-Za-z0-9_]{1,100}$/;
-    
+    // รองรับทั้ง "TABLE" และ "DB.TABLE" (connection ที่ไม่มี Default Database)
+    const tableReg = /^[A-Za-z0-9_]{1,100}(\.[A-Za-z0-9_]{1,100})?$/;
+
     // 1. tableName validation
     if (input.tableName !== undefined) {
       if (!tableReg.test(input.tableName)) {
-        throw new Error("ชื่อตารางต้องประกอบด้วยตัวอักษร A-Z, a-z, 0-9 และ _ เท่านั้น และยาวไม่เกิน 100 ตัวอักษร");
+        throw new Error("ชื่อตารางต้องเป็น A-Z, a-z, 0-9, _ (หรือรูปแบบ DB.TABLE) ยาวแต่ละส่วนไม่เกิน 100 ตัวอักษร");
       }
-      
+
       // Check collision with static registry (only if allowShadow is false)
       if (!allowShadow && TABLE_REGISTRY[input.tableName]) {
         throw new Error(`ชื่อตาราง "${input.tableName}" ชนกับ Static Registry หลักของระบบ ซึ่งเป็นตาราง Read-only`);
       }
     }
 
-    // 2. connectionKey validation
+    // 1.5 dbTable (ชื่อฟิสิคัล) — optional, รองรับ DB.TABLE
+    if (input.dbTable !== undefined && input.dbTable !== null && input.dbTable !== "") {
+      if (!tableReg.test(input.dbTable)) {
+        throw new Error("Physical DB Table Name ต้องเป็น A-Z, a-z, 0-9, _ หรือรูปแบบ DB.TABLE เท่านั้น");
+      }
+    }
+
+    // 2. connectionKey validation (static + dynamic จาก registry_connections)
     if (input.connectionKey !== undefined) {
-      if (!Object.keys(CONNECTION_CONFIGS).includes(input.connectionKey)) {
-        throw new Error(`ไม่พบ Connection Key "${input.connectionKey}" ใน CONNECTION_CONFIGS ของระบบ`);
+      if (!resolveConnConfig(input.connectionKey)) {
+        throw new Error(`ไม่พบ Connection Key "${input.connectionKey}" ในระบบ (เพิ่มได้ที่แท็บ Connections)`);
       }
     }
 
@@ -153,6 +175,7 @@ export class RegistryService {
     return rows.map(r => ({
       id: r.id,
       tableName: r.tableName,
+      dbTable: r.dbTable ?? null,
       label: r.label,
       connectionKey: r.connectionKey,
       customSql: r.customSql ? JSON.parse(r.customSql) : null,
@@ -178,6 +201,7 @@ export class RegistryService {
     return {
       id: r.id,
       tableName: r.tableName,
+      dbTable: r.dbTable ?? null,
       label: r.label,
       connectionKey: r.connectionKey,
       customSql: r.customSql ? JSON.parse(r.customSql) : null,
@@ -208,6 +232,7 @@ export class RegistryService {
     const record = {
       id,
       tableName: input.tableName,
+      dbTable: input.dbTable || null,
       label: input.label,
       connectionKey: input.connectionKey,
       customSql: input.customSql ? JSON.stringify(input.customSql) : null,
@@ -258,6 +283,7 @@ export class RegistryService {
       updatedAt: isoString,
     };
     if (input.tableName !== undefined) patch.tableName = input.tableName;
+    if (input.dbTable !== undefined) patch.dbTable = input.dbTable || null;
     if (input.label !== undefined) patch.label = input.label;
     if (input.connectionKey !== undefined) patch.connectionKey = input.connectionKey;
     if (input.customSql !== undefined) patch.customSql = input.customSql ? JSON.stringify(input.customSql) : null;
@@ -299,6 +325,7 @@ export class RegistryService {
       // This is OK because searchService/pivotService use connectionKey to route correctly
       map[r.tableName] = {
         tableName: r.tableName,
+        dbTable: r.dbTable || r.tableName, // ชื่อฟิสิคัลที่ใช้สร้าง SQL (DB.TABLE ได้)
         database: (r.connectionKey === "ACA" || r.connectionKey === "seagate") ? (r.connectionKey as "ACA" | "seagate") : undefined,
         label: r.label,
         drizzleTable: null, // Always null for dynamic tables
@@ -331,7 +358,7 @@ export class RegistryService {
               return { sql: sqlStr, params: values };
             }
             return {
-              sql: `SELECT * FROM \`${r.tableName}\` WHERE ${escapedDbCol} IN (${values.map(() => "?").join(",")})`,
+              sql: `SELECT * FROM ${quoteTableRef(r.dbTable || r.tableName)} WHERE ${escapedDbCol} IN (${values.map(() => "?").join(",")})`,
               params: values,
             };
           },
@@ -354,7 +381,7 @@ export class RegistryService {
    * Auto-detect columns using SHOW COLUMNS on target connection pool.
    */
   async previewColumns(connKey: string, tableName: string): Promise<ColumnMeta[]> {
-    if (!Object.keys(CONNECTION_CONFIGS).includes(connKey)) {
+    if (!resolveConnConfig(connKey)) {
       throw new Error(`ไม่พบ Connection Key "${connKey}"`);
     }
 
@@ -374,8 +401,8 @@ export class RegistryService {
         throw new Error("ชื่อตารางไม่ถูกต้องเพื่อความปลอดภัยในการป้องกัน SQL Injection");
       }
       // Check if connection has no default database — warn user to use DB.TABLE format
-      const cfg = CONNECTION_CONFIGS[connKey as DbKey] as any;
-      if (cfg.database === undefined) {
+      const cfg = resolveConnConfig(connKey);
+      if (cfg && cfg.database === undefined) {
         throw new Error(
           `Connection "${connKey}" ไม่มี Default Database กรุณาระบุชื่อตารางในรูปแบบ "DB.TABLE" เช่น "BIT.${tableName}"`
         );
@@ -383,7 +410,7 @@ export class RegistryService {
       showColumnsTarget = `\`${tableName}\``;
     }
 
-    const rawPool = getRawPool(connKey as DbKey);
+    const rawPool = getRawPool(connKey);
     // SHOW COLUMNS returns: Field, Type, Null, Key, Default, Extra
     const [rows] = await rawPool.execute(`SHOW COLUMNS FROM ${showColumnsTarget}`) as any[];
     
@@ -408,7 +435,7 @@ export class RegistryService {
    * Safely test raw user-defined query with a LIMIT 5 cap.
    */
   async testQuery(connKey: string, userSql: string, params: unknown[]): Promise<{ rows: any[]; tookMs: number }> {
-    if (!Object.keys(CONNECTION_CONFIGS).includes(connKey)) {
+    if (!resolveConnConfig(connKey)) {
       throw new Error(`ไม่พบ Connection Key "${connKey}"`);
     }
     
@@ -430,7 +457,7 @@ export class RegistryService {
       safetySql = `SELECT * FROM (${trimmedSql}) AS safety_subquery LIMIT 5`;
     }
 
-    const rawPool = getRawPool(connKey as DbKey);
+    const rawPool = getRawPool(connKey);
     const start = Date.now();
     const [res] = await rawPool.execute(safetySql, params) as any[];
     const tookMs = Date.now() - start;

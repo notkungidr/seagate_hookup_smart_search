@@ -80,8 +80,10 @@ export interface CustomSqlConfig {
 }
 
 export interface TableMeta {
-  /** ชื่อ Table จริงใน MySQL */
+  /** ชื่อ Table จริงใน MySQL (key ของ registry) */
   tableName: string;
+  /** ชื่อฟิสิคัลสำหรับสร้าง SQL (รองรับ DB.TABLE) — ไม่ระบุ = ใช้ tableName */
+  dbTable?: string;
   database?: "seagate" | "ACA";
   /** Connection key ที่จะใช้ query (สำหรับ dynamic tables ที่ไม่ใช่ seagate/ACA) */
   connectionKey?: string;
@@ -665,6 +667,18 @@ export function buildSelectClause(tableMeta: TableMeta): string {
 }
 
 // ============================================================
+// HELPER: ครอบชื่อตารางด้วย backtick — รองรับทั้ง "TABLE" และ "DB.TABLE"
+// จำเป็นสำหรับ connection ที่ไม่ตั้ง Default Database (เช่น Bitintra, HITACHI)
+// กัน injection: ห้ามมี backtick ในแต่ละส่วน (validate ที่ validateInput แล้ว แต่กันเองอีกชั้น)
+// ============================================================
+export function quoteTableRef(name: string): string {
+  return name
+    .split(".")
+    .map(part => `\`${part.replace(/`/g, "").trim()}\``)
+    .join(".");
+}
+
+// ============================================================
 // HELPER: แปลงคีย์ของ Row ในผลลัพธ์เป็น Label ที่กำหนดไว้
 // ============================================================
 export function mapRowToLabels(row: any, tableMeta: TableMeta): any {
@@ -717,6 +731,7 @@ export function getTablesSummary() {
   const dynamicEntries = Object.entries(_dynamicRegistry).map(([key, meta]) => ({
     key,
     tableName: meta.tableName,
+    dbTable: meta.dbTable ?? meta.tableName,
     database: meta.connectionKey ?? meta.database ?? "seagate",
     connectionKey: meta.connectionKey ?? meta.database ?? "seagate",
     label: meta.label,

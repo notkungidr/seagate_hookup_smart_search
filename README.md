@@ -27,9 +27,9 @@ seagate_hookup_smart_search/
 
 ### Environment Variables
 
-Backend uses **hardcoded credentials** in `backend/src/db/client.ts`. No `.env` file required for standard deployment.
+Credentials live in `backend/.env` (copy from `.env.example`).
 
-Optional overrides:
+Other overrides:
 - `PORT` — API port (default: `9090`)
 - `ENABLE_TLS` — set `true` to enable HTTPS (default: `false`)
 - `SSL_CERT_PATH`, `SSL_KEY_PATH`, `SSL_CA_PATH` — paths to cert files (default: `/etc/httpd/conf/ssl.crt/beltontechnology_com.*`)
@@ -156,6 +156,7 @@ server {
 Backend auto-creates metadata tables on startup:
 - `query_templates` — saved search templates
 - `saved_endpoints` — published API endpoints
+- `registry_tables` — dynamic table registry (managed via Registry Manager UI)
 - `registry_users` — user RBAC (seeded with default admin)
 - `endpoint_permissions` — per-endpoint access grants
 
@@ -193,8 +194,7 @@ No manual migration needed. Tables are created via `CREATE TABLE IF NOT EXISTS` 
 ## Documentation
 
 - `CLAUDE.md` — full architecture, registry design, pivot logic, resolved bugs
-- `USER_MANUAL.md` — end-user workflow guide
-- `DEVELOPER_GUIDE.md` — codebase walkthrough
+- `DEPLOY.md` — production deployment runbook (Docker Compose)
 - `spec/` — original Excel/SQL samples used to reverse-engineer schema
 
 ---
@@ -235,7 +235,7 @@ npm run dev      # Vite dev server
 
 ## Support
 
-- DB credentials hardcoded in `backend/src/db/client.ts` — change there if servers move
+- DB credentials via `backend/.env` (copy from `.env.example`) — change there if servers move
 - MySQL 5.0 limitations: no CTEs, no window functions, batch `IN (...)` queries to 100-1000 values
 - Case-sensitive table names: `SCAN1_DISPENSING` (uppercase), `scan1` (lowercase) — verify physically before adding to registry
 

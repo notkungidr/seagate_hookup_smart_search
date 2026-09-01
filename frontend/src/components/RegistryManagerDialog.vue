@@ -8,7 +8,122 @@
     @update:model-value="$emit('update:modelValue', $event)"
     @open="initManager"
   >
-    <div v-loading="loadingList" class="registry-manager-content">
+    <div class="manager-tab-row">
+      <el-radio-group v-model="managerTab" size="small">
+        <el-radio-button value="tables">📋 Tables</el-radio-button>
+        <el-radio-button value="connections">🔌 Connections</el-radio-button>
+      </el-radio-group>
+    </div>
+
+    <!-- ═══ TAB: Connections — เพิ่ม/แก้ server connection ได้โดยไม่ต้องแก้โค้ด ═══ -->
+    <div v-if="managerTab === 'connections'" v-loading="loadingConn" class="connections-wrap">
+      <div class="conn-list-panel">
+        <div class="panel-header">
+          <span class="panel-title">Database Connections</span>
+          <el-button type="primary" size="small" class="add-btn" @click="startNewConnection">
+            ✨ Add Connection
+          </el-button>
+        </div>
+        <div class="table-list-wrapper">
+          <div
+            v-for="c in connectionsList"
+            :key="c.id"
+            :class="['table-item', { active: selectedConn && selectedConn.id === c.id }]"
+            @click="selectConnection(c)"
+          >
+            <div class="item-header">
+              <span class="item-name">{{ c.id }}</span>
+              <span class="item-actions">
+                <span v-if="c.isStatic" class="badge static">SYSTEM</span>
+                <span v-else :class="['badge', c.isActive ? 'dynamic' : 'static']">{{ c.isActive ? 'ACTIVE' : 'OFF' }}</span>
+              </span>
+            </div>
+            <div class="item-label">{{ c.label }}</div>
+            <div class="item-db-info">{{ c.isStatic ? '(code-managed)' : c.host }}{{ c.dbName ? ' • ' + c.dbName : '' }}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="conn-form-panel">
+        <div v-if="connMode === ''" class="empty-state-pane">
+          <span class="empty-icon">🔌</span>
+          <h3>Select a Connection</h3>
+          <p>SYSTEM connections มาจากโค้ด (แก้ไม่ได้แต่ใช้ Test ได้) — กด "Add Connection" เพื่อเพิ่ม server ใหม่ connection จะโผล่ใน dropdown ของแท็บ Tables ทันทีโดยไม่ต้อง deploy ใหม่</p>
+        </div>
+
+        <el-form v-else label-position="top" class="config-form conn-form">
+          <div class="form-row">
+            <el-form-item label="Connection ID (Registry ID)" required class="form-col">
+              <el-input v-model="connForm.id" :disabled="connMode !== 'create'" @input="onConnIdInput" placeholder="e.g. VENDOR_WIP" />
+              <span class="input-hint">A-Z, a-z, 0-9 และ _ เท่านั้น — ใช้อ้างอิงเป็น Connection Key ในแท็บ Tables</span>
+            </el-form-item>
+            <el-form-item label="Display Label" class="form-col">
+              <el-input v-model="connForm.label" placeholder="e.g. Vendor WIP Server (ข้อมูล WIP)" :disabled="connMode === 'static'" />
+            </el-form-item>
+          </div>
+
+          <div class="form-row">
+            <el-form-item label="Host" required class="form-col">
+              <el-input v-model="connForm.host" placeholder="e.g. vendor-db01.th.belton.corp" :disabled="connMode === 'static'" />
+            </el-form-item>
+            <el-form-item label="Port" class="form-col" style="max-width: 150px;">
+              <el-input-number v-model="connForm.port" :min="1" :max="65535" :disabled="connMode === 'static'" style="width: 100%;" />
+            </el-form-item>
+          </div>
+
+          <div class="form-row">
+            <el-form-item label="User" required class="form-col">
+              <el-input v-model="connForm.user" placeholder="DB username" :disabled="connMode === 'static'" />
+            </el-form-item>
+            <el-form-item label="Password" class="form-col">
+              <el-input
+                v-model="connForm.password"
+                type="password"
+                show-password
+                :placeholder="connMode === 'edit' ? 'เว้นว่าง = คงรหัสเดิม' : 'DB password'"
+                :disabled="connMode === 'static'"
+              />
+              <span class="input-hint">ระบบไม่เคยส่งรหัสกลับมาจาก server — ต้องป้อนใหม่ทุกครั้งที่ต้องการเปลี่ยน</span>
+            </el-form-item>
+          </div>
+
+          <div class="form-row">
+            <el-form-item label="Default Database (เว้นว่าง = ระบุชื่อ DB ใน SQL ได้อิสระ)" class="form-col">
+              <el-input v-model="connForm.dbName" placeholder="e.g. WIP" :disabled="connMode === 'static'" />
+            </el-form-item>
+            <el-form-item label="สถานะ" class="form-col" style="max-width: 180px;">
+              <el-switch v-model="connForm.isActive" active-text="Active" :disabled="connMode === 'static'" />
+            </el-form-item>
+          </div>
+
+          <div class="conn-actions">
+            <el-button type="warning" :loading="testingConn" @click="testSelectedConnection">
+              ⚡ Test Connection
+            </el-button>
+            <el-button v-if="connTestTookMs" type="success" plain>✅ OK — {{ connTestTookMs }}ms</el-button>
+            <el-button v-if="connMode === 'create'" type="primary" :loading="savingConn" @click="saveConnection">
+              💾 Create Connection
+            </el-button>
+            <el-button v-if="connMode === 'edit'" type="primary" :loading="savingConn" @click="saveConnection">
+              💾 Save Changes
+            </el-button>
+            <el-button v-if="connMode === 'edit'" type="danger" plain @click="confirmDeleteConnection">
+              🗑️ Delete
+            </el-button>
+          </div>
+          <el-alert
+            v-if="connMode === 'static'"
+            type="info"
+            :closable="false"
+            show-icon
+            style="margin-top: 12px; max-width: 620px;"
+            title="SYSTEM connection — กำหนดจากโค้ด (backend/src/db/client.ts) ลบ/แก้ไม่ได้"
+          />
+        </el-form>
+      </div>
+    </div>
+
+    <div v-else v-loading="loadingList" class="registry-manager-content">
       <!-- PANEL 1: Left Sidebar - Table List -->
       <div class="sidebar-panel">
         <div class="panel-header">
@@ -88,7 +203,8 @@
               </el-form-item>
 
               <el-form-item label="Physical DB Table Name" required class="form-col">
-                <el-input v-model="form.tableName" placeholder="e.g. t_scan_bonding_data" />
+                <el-input v-model="form.tableName" placeholder="e.g. t_scan_bonding_data หรือ DB.TABLE เช่น HITACHI.PROD_HEADER" />
+                <span class="input-hint">Connection ที่ไม่มี Default Database ต้องใส่แบบ DB.TABLE</span>
               </el-form-item>
             </div>
 
@@ -98,22 +214,13 @@
               </el-form-item>
 
               <el-form-item label="Target Server Connection" required class="form-col">
-                <el-select v-model="form.connectionKey" placeholder="Select Server">
-                  <el-option label="Seagate Production (seagate)" value="seagate" />
-                  <el-option label="ACA Production (ACA)" value="ACA" />
-                  <el-option label="Bitintra Shared Server (Bitintra)" value="Bitintra" />
-                  <el-option label="BITR" value="BITR" />
-                  <el-option label="BITR_IMM" value="BITR_IMM" />
-                  <el-option label="BITR_SM" value="BITR_SM" />
-                  <el-option label="WORKFLOW" value="WORKFLOW" />
-                  <el-option label="BIT" value="dbBIT" />
-                  <el-option label="WMS" value="dbWMS" />
-                  <el-option label="HR" value="dbHr" />
-                  <el-option label="Seagate Development (SeagateDev)" value="SeagateDev" />
-                  <el-option label="SGCOIL (wdhu-db02)" value="SGCOIL" />
-                  <el-option label="HGSTACA (wdhu-db02)" value="HGSTACA" />
-                  <el-option label="SEAPRINT (sgfc-db02)" value="SEAPRINT" />
-                  <el-option label="SOFT (sgfc-db02)" value="SOFT" />
+                <el-select v-model="form.connectionKey" placeholder="Select Server" filterable>
+                  <el-option-group label="System Connections (code)">
+                    <el-option v-for="c in staticConnOptions" :key="c.id" :label="c.label" :value="c.id" />
+                  </el-option-group>
+                  <el-option-group v-if="customConnOptions.length" label="Custom Connections (DB)">
+                    <el-option v-for="c in customConnOptions" :key="c.id" :label="c.label" :value="c.id" />
+                  </el-option-group>
                 </el-select>
               </el-form-item>
             </div>
@@ -188,10 +295,10 @@ WHERE 1=1 AND ?col IN (?)</code></pre>
                               ต้องการเชื่อมโยงไปหาตารางที่อยู่บนฐานข้อมูลอื่น เช่น <code>BIT.ACA_BONDING_DATA</code>
                             </p>
                             <div class="rule-info-alert">
-                              💡 <strong>วิธีการเชื่อมโยง:</strong> 
+                              💡 <strong>วิธีการเชื่อมโยง:</strong>
                               <ol>
                                 <li>ที่ช่อง <strong>Target Server Connection</strong> ให้เลือก <code>Bitintra Shared Server (Bitintra)</code></li>
-                                <li>ที่ช่อง <strong>Physical DB Table Name</strong> ด้านบน ให้ป้อนเฉพาะ <code>ACA_BONDING_DATA</code> (ห้ามใส่ <code>BIT.</code> หรือจุด <code>.</code> เพื่อผ่านการตรวจสอบความปลอดภัยของ SQL Injection)</li>
+                                <li>ที่ช่อง <strong>Physical DB Table Name</strong> ด้านบน ให้ป้อนแบบ <code>DB.TABLE</code> เช่น <code>BIT.ACA_BONDING_DATA</code> (เพราะ connection นี้ไม่ได้ตั้ง Default Database) — แต่ละส่วนใช้ได้เฉพาะ A-Z, a-z, 0-9, _</li>
                               </ol>
                             </div>
                             <div class="code-copy-wrapper">
@@ -431,7 +538,7 @@ WHERE 1=1 AND ?col IN (?)</code></pre>
       <div class="dialog-footer-main">
         <el-button @click="$emit('update:modelValue', false)">Close Manager</el-button>
         <el-button
-          v-if="selectedTable || isEditingNew"
+          v-if="managerTab === 'tables' && (selectedTable || isEditingNew)"
           type="primary"
           size="large"
           class="save-table-btn"
@@ -502,6 +609,20 @@ const loadingList = ref(false);
 const searchQuery = ref('');
 const selectedTable = ref(null);
 const isEditingNew = ref(false);
+
+// ── Connections tab state ──
+const managerTab = ref('tables');
+const connectionsList = ref([]);
+const loadingConn = ref(false);
+const selectedConn = ref(null);
+const connMode = ref(''); // '' | 'create' | 'edit' | 'static'
+const savingConn = ref(false);
+const testingConn = ref(false);
+const connTestTookMs = ref(0);
+const connForm = ref({ id: '', label: '', host: '', port: 3306, user: '', password: '', dbName: '', isActive: true });
+
+const staticConnOptions = computed(() => connectionsList.value.filter(c => c.isStatic));
+const customConnOptions = computed(() => connectionsList.value.filter(c => !c.isStatic));
 
 // Form configurations
 const form = ref({
@@ -624,7 +745,10 @@ async function initManager() {
   selectedTable.value = null;
   isEditingNew.value = false;
   resetForm();
-  await loadTables();
+  selectedConn.value = null;
+  connMode.value = '';
+  connTestTookMs.value = 0;
+  await Promise.all([loadTables(), loadConnections()]);
 }
 
 async function loadTables() {
@@ -662,6 +786,160 @@ async function loadTables() {
   }
 }
 
+// ── Connections: load / select / CRUD ──
+async function loadConnections() {
+  loadingConn.value = true;
+  try {
+    const res = await fetch(`${props.apiBase}/api/registry/connections`, { headers: getAuthHeaders() });
+    const result = await res.json();
+    if (result.success) {
+      connectionsList.value = result.data || [];
+    } else {
+      ElMessage.error(result.message || 'Failed to load connections.');
+    }
+  } catch (err) {
+    console.error(err);
+    ElMessage.error('Failed to load connections.');
+  } finally {
+    loadingConn.value = false;
+  }
+}
+
+function freshConnForm() {
+  return { id: '', label: '', host: '', port: 3306, user: '', password: '', dbName: '', isActive: true };
+}
+
+function startNewConnection() {
+  selectedConn.value = null;
+  connMode.value = 'create';
+  connForm.value = freshConnForm();
+  connTestTookMs.value = 0;
+}
+
+function selectConnection(c) {
+  selectedConn.value = c;
+  connTestTookMs.value = 0;
+  connMode.value = c.isStatic ? 'static' : 'edit';
+  connForm.value = {
+    id: c.id,
+    label: c.label,
+    host: c.host || '',
+    port: c.port || 3306,
+    user: c.user || '',
+    password: '', // ห้าม pre-fill — เว้นว่าง = คงรหัสเดิม
+    dbName: c.dbName || '',
+    isActive: c.isActive,
+  };
+}
+
+function onConnIdInput() {
+  connForm.value.id = connForm.value.id.replace(/[^A-Za-z0-9_]/g, '').slice(0, 50);
+}
+
+async function testSelectedConnection() {
+  if (connMode.value === 'create') {
+    ElMessage.warning('กรุณา Create Connection ก่อน แล้วจึงกด Test ได้');
+    return;
+  }
+  testingConn.value = true;
+  connTestTookMs.value = 0;
+  try {
+    const res = await fetch(`${props.apiBase}/api/registry/connections/${connForm.value.id}/test`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    });
+    const result = await res.json();
+    if (result.success) {
+      connTestTookMs.value = result.tookMs || 0;
+    } else {
+      ElMessage.error(result.message || 'Connection test failed.');
+    }
+  } catch (err) {
+    console.error(err);
+    ElMessage.error('Network error during connection test.');
+  } finally {
+    testingConn.value = false;
+  }
+}
+
+async function saveConnection() {
+  const f = connForm.value;
+  if (!f.id) return ElMessage.warning('กรุณาระบุ Connection ID');
+  if (!f.host) return ElMessage.warning('กรุณาระบุ Host');
+  if (!f.user) return ElMessage.warning('กรุณาระบุ User');
+  if (connMode.value === 'create' && !f.password) return ElMessage.warning('กรุณาระบุ Password');
+
+  savingConn.value = true;
+  try {
+    const isNew = connMode.value === 'create';
+    const body = {
+      label: f.label || f.id,
+      host: f.host,
+      port: f.port || 3306,
+      user: f.user,
+      password: f.password || '',
+      dbName: f.dbName || null,
+      isActive: !!f.isActive,
+    };
+    if (isNew) body.id = f.id; // PUT ห้ามส่ง id (schema ไม่รับ) — POST ต้องส่ง
+    const res = await fetch(
+      isNew
+        ? `${props.apiBase}/api/registry/connections`
+        : `${props.apiBase}/api/registry/connections/${f.id}`,
+      {
+        method: isNew ? 'POST' : 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(body),
+      }
+    );
+    const result = await res.json();
+    if (result.success) {
+      ElMessage.success(isNew ? `Created connection "${f.id}" — ใช้ได้เลยจากแท็บ Tables` : 'Connection saved.');
+      await loadConnections();
+      const row = connectionsList.value.find(c => c.id === f.id);
+      if (row) selectConnection(row);
+    } else {
+      ElMessage.error(result.message || 'Failed to save connection.');
+    }
+  } catch (err) {
+    console.error(err);
+    ElMessage.error('Network error while saving connection.');
+  } finally {
+    savingConn.value = false;
+  }
+}
+
+async function confirmDeleteConnection() {
+  const f = connForm.value;
+  try {
+    await ElMessageBox.confirm(
+      `ลบ Connection "${f.id}" ? ถ้ามีตารางใน Registry ใช้อยู่ ระบบจะปฏิเสธการลบ`,
+      'ยืนยันการลบ',
+      { type: 'warning', confirmButtonText: 'Delete', cancelButtonText: 'Cancel' }
+    );
+  } catch {
+    return;
+  }
+  try {
+    const res = await fetch(`${props.apiBase}/api/registry/connections/${f.id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+    });
+    const result = await res.json();
+    if (result.success) {
+      ElMessage.success(`Deleted connection "${f.id}".`);
+      selectedConn.value = null;
+      connMode.value = '';
+      await loadConnections();
+    } else {
+      ElMessage.error(result.message || 'Failed to delete connection.');
+    }
+  } catch (err) {
+    console.error(err);
+    ElMessage.error('Network error while deleting connection.');
+  }
+}
+
 // Resetting Form
 function resetForm() {
   form.value = {
@@ -689,7 +967,7 @@ function selectItem(item) {
   // Populate config form
   form.value.id = item.id || '';
   form.value.key = item.key;
-  form.value.tableName = item.tableName;
+  form.value.tableName = item.dbTable || item.tableName; // dbTable = ชื่อฟิสิคัลจริง (DB.TABLE)
   form.value.label = item.label;
   
   if (item.isDynamic) {
@@ -747,7 +1025,7 @@ async function autoDetectColumns() {
   try {
     const res = await fetch(`${props.apiBase}/api/registry/preview-columns`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(), // admin-only route — ต้องแนบ x-user-en
       body: JSON.stringify({
         connectionKey: form.value.connectionKey,
         tableName: form.value.tableName,
@@ -823,7 +1101,7 @@ async function testRawQuery() {
   try {
     const res = await fetch(`${props.apiBase}/api/registry/test-query`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(), // admin-only route — ต้องแนบ x-user-en
       body: JSON.stringify({
         connectionKey: form.value.connectionKey,
         sql: form.value.customSqlStr.replace(/`\??col`/gi, '`1`').replace(/\??col\b/gi, '`1`'), // safe test replacing column template literally
@@ -930,6 +1208,7 @@ async function saveTableConfig() {
 
     const payload = {
       tableName: form.value.key, // Save key as the actual dynamic identifier slug
+      dbTable: form.value.tableName, // ชื่อฟิสิคัลจริง (รองรับ DB.TABLE เช่น HITACHI.PROD_HEADER)
       label: form.value.label,
       connectionKey: form.value.connectionKey,
       customSql: form.value.useCustomSql ? {
@@ -1704,5 +1983,44 @@ function confirmDelete(item) {
   line-height: 1.4;
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+/* ── Connections tab ── */
+.manager-tab-row {
+  padding: 10px 20px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.connections-wrap {
+  display: flex;
+  height: 720px;
+  background-color: #f6f8fb;
+}
+
+.conn-list-panel {
+  width: 340px;
+  background: white;
+  border-right: 1px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.conn-form-panel {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+.conn-form {
+  max-width: 860px;
+}
+
+.conn-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 8px;
 }
 </style>

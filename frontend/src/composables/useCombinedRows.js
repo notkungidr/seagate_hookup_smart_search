@@ -1,18 +1,13 @@
 import { computed, markRaw, ref, watch } from 'vue';
+import { isDateColumnName } from '../utils/dateTime.js';
+
+// re-export เพื่อ back-compat (TraceabilityFlow  import จากที่นี่อยู่)
+export { isDateColumnName };
 
 const POSSIBLE_JOIN_KEYS = [
   'hookup', 'DCM', 'serial_no', 'dcm', 'SERIAL_NO', 'HOOKUP',
   'Hookup (SN)', 'DCM (SN)', 'Serial No (SN)', 'Lot', 'Prod Lot', 'PT No', 'TL (SN)'
 ];
-
-export function isDateColumnName(colName) {
-  if (!colName) return false;
-  const normalized = colName.toLowerCase();
-  if (normalized.includes('user_reg') || normalized.includes('user_upd') || normalized.includes('userreg') || normalized.includes('userupd')) {
-    return false;
-  }
-  return normalized.includes('date') || normalized.includes('time') || normalized.includes('crdt') || normalized === 'reg' || normalized === 'upd';
-}
 
 export function useCombinedRows({
   chainSteps,

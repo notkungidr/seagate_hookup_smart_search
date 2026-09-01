@@ -1,6 +1,6 @@
 import { db, dbBitintra, getDb, getRawPool } from "../db/client";
 import { sql } from "drizzle-orm";
-import { getTableMeta, TABLE_REGISTRY, getDynamicRegistry, TableMeta, buildSelectClause, mapRowToLabels } from "../config/tableRegistry";
+import { getTableMeta, TABLE_REGISTRY, getDynamicRegistry, TableMeta, buildSelectClause, mapRowToLabels, quoteTableRef } from "../config/tableRegistry";
 
 import { BATCH_SIZE } from "../config/appConfig";
 
@@ -109,7 +109,7 @@ export class PivotService {
     }
 
     // 2. Batch IN queries (ป้องกัน Connection Pool เต็มและ Query ยาวเกินไป)
-    const dbTable = tableMeta.tableName;
+    const dbTable = tableMeta.dbTable || tableMeta.tableName; // ชื่อฟิสิคัล (DB.TABLE ได้)
     const connKey = tableMeta.connectionKey;
 
     // Dynamic tables with connectionKey != seagate/ACA cannot use Drizzle (no schema hardcoded)
@@ -128,7 +128,7 @@ export class PivotService {
       const placeholderChunks = batch.map(v => sql`${v}`);
       const joinedPlaceholders = sql.join(placeholderChunks, sql`, `);
 
-      const query = sql`SELECT ${sql.raw(selectClause)} FROM ${sql.identifier(dbTable)} WHERE ${sql.identifier(dbCol)} IN (${joinedPlaceholders})`;
+      const query = sql`SELECT ${sql.raw(selectClause)} FROM ${sql.raw(quoteTableRef(dbTable))} WHERE ${sql.identifier(dbCol)} IN (${joinedPlaceholders})`;
 
       // Get compiled query for debugging
       const compiled = queryDb.dialect.sqlToQuery(query);
@@ -475,7 +475,7 @@ export class PivotService {
     //console.log(rawPool['pool']);
     //console.log("##########################")
 
-    const dbTable = tableMeta.tableName;
+    const dbTable = tableMeta.dbTable || tableMeta.tableName;
     const allRows: Record<string, any>[] = [];
     const executedQueries: { sql: string; params: any[] }[] = [];
 
@@ -486,7 +486,7 @@ export class PivotService {
       const escapedCol = dbCol.includes(".")
         ? dbCol.split(".").map(part => `\`${part.trim()}\``).join(".")
         : `\`${dbCol}\``;
-      const rawSql = `SELECT * FROM \`${dbTable}\` WHERE ${escapedCol} IN (${placeholders})`;
+      const rawSql = `SELECT * FROM ${quoteTableRef(dbTable)} WHERE ${escapedCol} IN (${placeholders})`;
 
       console.log(`\n\x1b[36m╔══════════ [SQL Debug - RawPool Pivot (${connKey}) Batch ${Math.floor(i / BATCH_SIZE) + 1}] ══════════\x1b[0m`);
        console.log(`\x1b[36m║\x1b[0m \x1b[1mConnection :\x1b[0m ${connKey}`);

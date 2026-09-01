@@ -1,6 +1,6 @@
 import { db, dbACA, dbBitintra, getDb, getRawPool } from "../db/client";
 import { sql } from "drizzle-orm";
-import { getTableMeta, TABLE_REGISTRY, TableMeta, buildSelectClause, mapRowToLabels } from "../config/tableRegistry";
+import { getTableMeta, TABLE_REGISTRY, TableMeta, buildSelectClause, mapRowToLabels, quoteTableRef } from "../config/tableRegistry";
 
 import { BATCH_SIZE } from "../config/appConfig";
 
@@ -97,7 +97,7 @@ export class SearchService {
     }
     console.log(`[searchService.search] → no customSql, continuing to Drizzle/RawPool path`);
 
-    const dbTable = tableMeta.tableName;
+    const dbTable = tableMeta.dbTable || tableMeta.tableName; // ชื่อฟิสิคัล (DB.TABLE ได้)
     const connKey = tableMeta.connectionKey;
 
     // Dynamic tables with connectionKey other than seagate/ACA cannot use Drizzle ORM
@@ -171,7 +171,7 @@ export class SearchService {
         }
 
         const whereClause = sql.join(fragments, sql` AND `);
-        const query = sql`SELECT ${sql.raw(selectClause)} FROM ${sql.identifier(dbTable)} WHERE ${whereClause}`;
+        const query = sql`SELECT ${sql.raw(selectClause)} FROM ${sql.raw(quoteTableRef(dbTable))} WHERE ${whereClause}`;
         const compiled = queryDb.dialect.sqlToQuery(query);
 
         // Store first batch debug info
@@ -213,7 +213,7 @@ export class SearchService {
       }
 
       const whereClause = fragments.length > 0 ? sql.join(fragments, sql` AND `) : sql`1=1`;
-      const query = sql`SELECT ${sql.raw(selectClause)} FROM ${sql.identifier(dbTable)} WHERE ${whereClause}`;
+      const query = sql`SELECT ${sql.raw(selectClause)} FROM ${sql.raw(quoteTableRef(dbTable))} WHERE ${whereClause}`;
 
       const compiled = queryDb.dialect.sqlToQuery(query);
       debugSql = compiled.sql;
@@ -331,7 +331,8 @@ export class SearchService {
         baseSql = baseSql.slice(0, -1);
       }
     } else {
-      baseSql = `SELECT ${selectClause} FROM \`${tableMeta.tableName}\` WHERE 1=1`;
+      const dbTable = tableMeta.dbTable || tableMeta.tableName; // รองรับ DB.TABLE
+      baseSql = `SELECT ${selectClause} FROM ${quoteTableRef(dbTable)} WHERE 1=1`;
     }
 
     const queryParams: any[] = [];
@@ -886,7 +887,7 @@ export class SearchService {
     if (!exactKey) throw new Error(`Column "${column}" not found in table "${table}"`);
 
     const colMeta = tableMeta.columns[exactKey];
-    const dbTable = tableMeta.tableName;
+    const dbTable = tableMeta.dbTable || tableMeta.tableName;
     const dbCol = colMeta.dbColumn;
     const queryDb = tableMeta.database === "ACA" ? dbACA : db;
     column = exactKey; // use the exact resolved key downstream
@@ -950,8 +951,16 @@ export class SearchService {
         
         const [rows] = await rawPool.execute(distinctSql) as any[];
         checkRes = rows;
+      } else if (tableMeta.connectionKey && tableMeta.connectionKey !== "seagate" && tableMeta.connectionKey !== "ACA") {
+        // Dynamic table บน connection อื่น (registry_connections) — ต้องใช้ raw pool ของ connection นั้น
+        // queryDb ด้านบนผูกกับ static pool (seagate/ACA) เท่านั้น
+        const rawPool = getRawPool(tableMeta.connectionKey);
+        const colRef = quoteTableRef(dbCol);
+        const distinctSql = `SELECT DISTINCT ${colRef} AS val FROM ${quoteTableRef(dbTable)} WHERE ${colRef} IS NOT NULL AND ${colRef} != '' LIMIT 1001`;
+        const [rows] = await rawPool.execute(distinctSql) as any[];
+        checkRes = rows;
       } else {
-        checkQuery = sql`SELECT DISTINCT ${sql.identifier(dbCol)} AS val FROM ${sql.identifier(dbTable)} WHERE ${sql.identifier(dbCol)} IS NOT NULL AND ${sql.identifier(dbCol)} != '' LIMIT 1001`;
+        checkQuery = sql`SELECT DISTINCT ${sql.identifier(dbCol)} AS val FROM ${sql.raw(quoteTableRef(dbTable))} WHERE ${sql.identifier(dbCol)} IS NOT NULL AND ${sql.identifier(dbCol)} != '' LIMIT 1001`;
         checkRes = await queryDb.execute(checkQuery) as any;
       }
     }
@@ -984,7 +993,7 @@ export class SearchService {
   ): Promise<SearchResult> {
     const { table } = params;
     const rawPool = getRawPool(connKey as any);
-    const dbTable = tableMeta.tableName; // e.g. "ACA_BONDING_DATA"
+    const dbTable = tableMeta.dbTable || tableMeta.tableName; // e.g. "ACA_BONDING_DATA" หรือ "BIT.X"
 
     // Build WHERE clause from conditionsList using plain SQL string (no Drizzle)
     let resultRows: Record<string, any>[] = [];
@@ -1052,7 +1061,7 @@ export class SearchService {
         }
 
         const whereClause = whereParts.join(" AND ");
-        const rawSql = `SELECT * FROM \`${dbTable}\` WHERE ${whereClause} LIMIT ${limit}`;
+        const rawSql = `SELECT * FROM ${quoteTableRef(dbTable)} WHERE ${whereClause} LIMIT ${limit}`;
 
         if (i === 0) {
           executedQueries.push({ sql: rawSql, params: sqlParams });
@@ -1101,7 +1110,7 @@ export class SearchService {
       }
 
       const whereClause = whereParts.length > 0 ? whereParts.join(" AND ") : "1=1";
-      const rawSql = `SELECT * FROM \`${dbTable}\` WHERE ${whereClause} LIMIT ${limit}`;
+      const rawSql = `SELECT * FROM ${quoteTableRef(dbTable)} WHERE ${whereClause} LIMIT ${limit}`;
 
       console.log(`\n\x1b[36m╔══════════ [SQL Debug - RawPool Search (${connKey})] ══════════\x1b[0m`);
       console.log(`\x1b[36m║\x1b[0m \x1b[1mDatabase:\x1b[0m ${connKey}`);

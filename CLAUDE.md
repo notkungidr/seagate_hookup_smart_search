@@ -12,7 +12,9 @@ Seagate Hookup Smart Search — production traceability tool for the Seagate ACA
 - `cd backend && bun install`
 - `bun run dev` — watch mode on port **9090** (override with `PORT=<n>`)
 - `bun run start` — production
+- `bun test` — runs `src/services/endpointService.test.ts` (only test file; not a full suite)
 - Swagger UI auto-mounted at `GET /swagger`
+- Requires `backend/.env` (copy from `.env.example`) — supplies `DB_*` credentials
 - HTTPS: set `ENABLE_TLS=true` + cert env vars (`SSL_CERT_PATH`, `SSL_KEY_PATH`, `SSL_CA_PATH`). Defaults to `/etc/httpd/conf/ssl.crt/beltontechnology_com.*` (production box). Falls back to HTTP if certs missing.
 
 **Frontend** (`frontend/`, Vue 3 + Vite + Element Plus):
@@ -20,7 +22,7 @@ Seagate Hookup Smart Search — production traceability tool for the Seagate ACA
 - `npm run dev` — Vite dev server
 - `npm run build` / `npm run preview`
 
-**No test suite, lint, or formatter** — `backend/src/check_*.ts` and `simulate_run.ts` are ad-hoc probes (`bun run <file>`), not a test harness.
+**No lint or formatter** — `backend/src/check_*.ts` and `simulate_run.ts` are ad-hoc probes (`bun run <file>`), not a test harness.
 
 ## Architecture
 
@@ -28,49 +30,62 @@ Two-tier SPA: Vue frontend (`frontend/`) talks to Elysia HTTP API (`backend/src/
 
 ### Core API Endpoints
 
-- `GET  /api/tables` — full table/column/link metadata (frontend caches once at boot)
+- `GET  /api/tables` — table/column/link metadata. **Reloads dynamic registry on every call** (keeps multiple server instances in sync)
+- `GET  /api/config` — exposes `pivotBatchSize`
 - `GET  /api/distinct?table=&column=&search=&limit=` — autocomplete distinct values (default limit 200, returns `tooManyDistinct` flag)
 - `POST /api/search` — search one table by `conditions[]` (operators: `like|eq|in|between|gte|lte`)
 - `POST /api/pivot` — given `sourceValues[]` from previous result, query `targetTable.targetColumn`
 - `GET|POST|PUT|DELETE /api/templates[/:id]` — CRUD for Query Templates (MySQL `query_templates` on SeagateDev pool)
-- `GET|POST|PUT|DELETE /api/v1/endpoints[/:id]` — CRUD for Saved Endpoints (template + binding metadata: `allowedParams`, `paramBindings`, `visibleCols`)
-- `GET|POST /api/v1/trace/:id?format=json|csv&<param>=<value>...` — runs saved endpoint's full pivot chain server-side, left-joins all steps via `EndpointService.combineSteps`, applies in-memory filtering, returns JSON or CSV. The "publish parameterized traceability query as stable URL" feature.
+- `GET|POST|PUT|DELETE /api/v1/endpoints[/:id]` — CRUD for Saved Endpoints
+- `GET|POST /api/v1/trace/:id?format=json|csv&<param>=<value>...` — runs saved endpoint's full pivot chain server-side, left-joins all steps via `EndpointService.combineSteps`, applies in-memory filtering, returns JSON or CSV
+- `POST /api/registry/login`, `GET|POST|PUT|DELETE /api/registry/tables[/:id]`, `POST /api/registry/preview-columns|test-query|reload` (**preview-columns/test-query are admin-only** — they accept external SQL/connection keys), `GET|POST|PUT|DELETE /api/registry/users[/:en]` — Dynamic Registry management (see below)
+- `GET|POST /api/registry/connections`, `PUT|DELETE /api/registry/connections/:id`, `POST /api/registry/connections/:id/test` — Dynamic DB Connections CRUD (all admin-only; see Connection Registry below)
 
-### Single Source of Truth: `backend/src/config/tableRegistry.ts`
+### Table Registry: static + dynamic layers
 
-Every table, searchable column, display label, and inter-table link lives in `TABLE_REGISTRY`. `searchService.ts` and `pivotService.ts` are generic — they call `getTableMeta(name)` and act on its `columns` map. To add a table or pivot path, edit the registry + `db/schema.ts`; **never hardcode** table names or joins in services.
+Static source of truth: `backend/src/config/tableRegistry.ts` (`TABLE_REGISTRY`) — every built-in table, searchable column, display label, and inter-table link.
 
-Each column has `dbColumn` (physical, often UPPERCASE/snake_case) and a TS key (camelCase). `linksTo[].targetColumn` references the **TS key** in the target table's registry, not the physical name.
+**Dynamic layer (Phase 2):** tables can also be added at runtime via the Registry Manager UI (`frontend/src/components/RegistryManagerDialog.vue`) and are persisted to `registry_tables` (SeagateDev pool, columns JSON-serialized `ColumnMeta` map, optional `custom_sql` JSON). `registryService.reloadDynamicRegistry()` hot-loads them into `_dynamicRegistry`; `getTableMeta()` checks **dynamic first, static second** — a dynamic table shadows a static one with the same name.
+
+- `wms_lot_info` is seeded into `registry_tables` with `customSql: { multiQuery: true, multiQueryType: "wms" }` — `searchService` and `pivotService` have a generic customSql dispatcher plus a WMS-specific branch that fans out to `WMS.SHIPMENTPALLET_BOX_PROD` + `WMS.SG_FGREC_DATA` and merges rows with `wms_source` enrichment.
+- `customSql.buildQuery` is the generic escape hatch for new custom tables — no service changes needed.
+
+Each column has `dbColumn` (physical, often UPPERCASE/snake_case) and a TS key (camelCase). `linksTo[].targetColumn` references the **TS key** in the target table's registry, not the physical name. To add a built-in table or pivot path, edit `tableRegistry.ts` + `db/schema.ts`; **never hardcode** table names or joins in services.
+
+### Row Shape: label-keyed (don't re-break)
+
+Search/pivot SELECTs use `buildSelectClause()` → `dbCol AS '<label>'`, so returned rows are keyed by the column **label** (`mapRowToLabels` also tolerates dbColumn/TS-key fallbacks). `availablePivots[].fromDbColumn` now carries the **label** — frontend must extract pivot source values using `row[pivot.fromDbColumn]`, never a camelCase TS key. See `TraceabilityFlow.vue` (`sourceDbColumn = pivot.fromDbColumn`).
 
 ### MySQL Pools (`backend/src/db/client.ts`)
 
-All wrapped with 120s hard timeout (`conn.destroy()` on socket) — respect this when adding queries. Primary pools:
+Credentials come from `.env` via `CONNECTION_CONFIGS` (`DB_SEAGATE_*`, `DB_BITINTRA_*`, `DB_WMS_*`, `DB_SEAGATEDEV_*`, `DB_SGCOIL_*`, `DB_SEAPRINT_*`, `DB_SOFT_*`, ...). All pools wrapped with a 120s hard timeout (`conn.destroy()` on socket) — respect this when adding queries. Pools are **lazy** (created on first `getDb(key)` call, cached). `getDb(key)`/`getRawPool(key)` accept any string key resolved via `resolveConnConfig(key)` — unknown keys throw a Thai error pointing to Registry Manager → Connections (not a crash).
 
-1. **`db`** — host `sghu-db02`, DB `seagate`. Primary production data (Scan1, Soldering, Baking, Scan2.1, Bonding fixtures, etc.)
-2. **`dbACA`** — same host, DB `ACA`
-3. **`dbBitintra`** — host `bitintra-db02`, no default DB. Cross-DB queries
-4. **`dbWMS`** — host `bitintra-db02`, DB `WMS`. WMS-specific queries (`SHIPMENTPALLET_BOX_PROD`, `SG_FGREC_DATA`)
-5. **`dbSeagateDev`** — app-managed metadata tables: `query_templates`, `saved_endpoints`, `registry_users`. DDLs are auto-`CREATE TABLE IF NOT EXISTS`'d at server startup.
+Connection keys (via `getDb(key)` / exported consts): `seagate` (DB `seagate` — Scan1, Soldering, Baking, Scan2.1, Bonding), `ACA`, `Bitintra` (no default DB — cross-DB queries), `BITR`, `BITR_IMM`, `BITR_SM`, `WORKFLOW`, `dbHr`, `dbBIT`, `dbWMS` (`SHIPMENTPALLET_BOX_PROD`, `SG_FGREC_DATA`), `SeagateDev` (app metadata: `query_templates`, `saved_endpoints`, `registry_tables`, `registry_users`, `endpoint_permissions`, `registry_connections` — DDLs auto-`CREATE TABLE IF NOT EXISTS` at startup), `seagateACADev`, `SGCOIL`, `HGSTACA`, `SEAPRINT`, `SOFT` — plus any id from `registry_connections` (see below).
 
-Additional pools available via `getDb(key)`: `dbHr`, `dbBIT`, `SGCOIL`. Virtual table `wms_lot_info` in registry has `drizzleTable: null` and custom branches in services that fan out to `dbBitintra` / `dbWMS`.
+Tech debt: a few entries still hardcode user/password (`seagateACADev`, `SGCOIL`/`HGSTACA` usernames) — don't "fix" piecemeal; ask first.
+
+### Connection Registry: static + dynamic layers
+
+**Dynamic layer:** DB servers can be added at runtime via Registry Manager → **Connections** tab, persisted to `registry_connections` (SeagateDev pool). `connectionRegistryService` (`backend/src/services/connectionRegistryService.ts`) does CRUD + `loadAndApply()` → `setDynamicConnections()` fills the shadow map in `client.ts`; pools for dynamic keys are created lazily on first use. `closePool(id)` is called on update/delete so the next request rebuilds from the new config (in-flight queries on the old pool error once).
+
+- **STATIC WINS, always:** `resolveConnConfig(key)` checks `CONNECTION_CONFIGS` first — dynamic rows can never shadow/hijack the 16 code-defined connections (and their eager exports `db`, `dbACA`, `dbSeagateDev`, ...). Never flip this order.
+- Password is stored plaintext (accepted, same exposure class as `.env`) but **never returned by any API** — `list()` returns `hasPassword: true` only; blank password on PUT = keep existing; frontend never pre-fills the field.
+- Delete refuses while any `registry_tables.connectionKey` still references the connection (frontend surfaces the refusal).
+- Cross-instance sync: `loadAndApply()` runs at startup (before `reloadDynamicRegistry`), after every mutation, on `POST /registry/reload`, and piggybacks on `GET /tables` — but only the **config map** syncs; other instances keep stale pools until they restart or their own closePool fires.
 
 ### Hard Constraints (MySQL 5.0.0)
 
-- **Batch all `IN (...)` queries.** Codebase uses `BATCH_SIZE = 1000`, but docs mention safe batch is **100**. Confirm with user before changing.
+- **Batch all `IN (...)` queries.** Backend `BATCH_SIZE = 5000` (`backend/src/config/appConfig.ts`); frontend chain executor caps every `/api/pivot` call at `PIVOT_BATCH_SIZE = 100` per request as defense-in-depth. Don't change either without aligning both layers and confirming with user.
 - No window functions, no CTEs, no modern JSON. Keep queries simple.
 - Table-name case must match physically: `SCAN1_DISPENSING`, `BONDING_FIXTURE`, `BONDING_FIXTURE_BEARING`, `BAKING` are UPPERCASE; `scan1`, `scan1_map_aca_lot_bracket_lot`, `scan21`, `soldering`, `soldering_laser` are lowercase.
 
-### CamelCase vs snake_case Pivot (Resolved — Don't Re-introduce)
+### Dead Code
 
-Drizzle returns rows keyed by **physical** column name (e.g. `BONDING_FIXTURE`, not `bondingFixture`). Search response includes `availablePivots[].fromDbColumn` — frontend must extract pivot source values using `row[pivot.fromDbColumn]`, not camelCase TS key. See `frontend/src/components/TraceabilityFlow.vue`.
-
-### Credentials
-
-DB credentials currently hardcoded in `backend/src/db/client.ts`. Known tech debt — don't "fix" by moving to `.env` without asking; other tooling may depend on current setup.
+`backend/src/services/traceability.ts` imports schema exports that don't exist (`materialScans`, `aoiTests`, `packagingRecords`) and is mounted nowhere — dead, don't build on it.
 
 ## Saved Query Templates (Frontend Feature)
 
-`frontend/src/composables/useQueryTemplates.js` + `frontend/src/components/QueryTemplatesPanel.vue`. Users save Pivot path (Scan1 → Map → Soldering → Scan2.1 → ...) and replay it from single SN, fan-out via `/api/pivot` 100 values at a time. Templates persisted to MySQL via `/api/templates` CRUD endpoints (table `query_templates` on SeagateDev pool) — **not** localStorage. Old code/comments referencing localStorage are out of date.
+`frontend/src/composables/useQueryTemplates.js` + `frontend/src/components/QueryTemplatesPanel.vue`. Users save Pivot path (Scan1 → Map → Soldering → Scan2.1 → ...) and replay it from single SN, fan-out via `/api/pivot` 100 values at a time. Templates persisted to MySQL via `/api/templates` CRUD (table `query_templates` on SeagateDev pool) — **not** localStorage.
 
 Template shape:
 ```ts
@@ -86,97 +101,46 @@ interface QueryTemplate {
 }
 ```
 
-`hops[].fromStepIdx` is index of source step to pivot FROM (0 = root). Supports **branched chains** (Add Branch) where hop may originate from any prior step, not just previous one. Old templates without `fromStepIdx` fall back to `i` for backwards compat.
+`hops[].fromStepIdx` is index of source step to pivot FROM (0 = root). Supports **branched chains** (Add Branch) — old templates without `fromStepIdx` fall back to `i`.
 
-**Pivot Path vs Search Conditions stored separately** — chain (`hops[]`) is structure; `rootConditions[]` is default values for master/root table. When user picks template, `QueryTemplatesPanel` renders Master Chain Conditions Editor seeded from `rootConditions` so they can tweak date ranges, operators, IN-lists before Run Chain. Don't merge these concepts.
+**Pivot Path vs Search Conditions stored separately** — chain (`hops[]`) is structure; `rootConditions[]` is default values for master/root table. When user picks template, `QueryTemplatesPanel` renders Master Chain Conditions Editor seeded from `rootConditions`. Don't merge these concepts.
 
-### Root Step Must Carry `.table` and `._searchConditions` (Resolved)
-
-`doSearch` snapshots both onto `chainSteps[0]` at search time so `buildTemplateFromCurrentChain` reads the table/conditions that were actually searched, not live sidebar values.
-
-### Branch Pivot Parent Lookup (Resolved)
-
-When "Add Branch" used, `chainSteps[i]._pivotFromStepIdx` points to actual parent step. `buildTemplateFromCurrentChain` uses `_pivotFromStepIdx` to find correct parent table for `fromCol` lookup. `runTemplateChain` uses `hop.fromStepIdx` to pull source rows from correct prior step via `stepRows[]`/`stepTableKey[]` arrays instead of single `prevRows` cursor.
-
-### shallowRef Auto-unwrap Pitfall (Resolved)
-
-`chainSteps` in `TraceabilityFlow.vue` is `shallowRef([])`. When passed as prop, Vue auto-unwraps to raw array — `props.chainSteps.value = newArr` inside child **silently no-ops**. Fix: Composable's `runTemplateChain()` accepts `updateChainSteps(newSteps)` callback instead of shallowRef. Child emits `update:chainSteps`, parent does `@update:chain-steps="chainSteps = $event"`. One-way data flow. Keep this pattern when extending.
-
-### 100-Batching Enforced on Frontend
-
-Even though backend `pivotService.ts` batches internally (currently 1000), frontend chain executor caps every `/api/pivot` call at `PIVOT_BATCH_SIZE = 100` source values per request as defense-in-depth. Don't remove without aligning both layers.
+Resolved pitfalls (don't re-introduce):
+- `doSearch` snapshots `.table` + `._searchConditions` onto `chainSteps[0]` at search time — `buildTemplateFromCurrentChain` must read those, not live sidebar values.
+- Branched chains: `chainSteps[i]._pivotFromStepIdx` points to actual parent; `runTemplateChain` pulls source rows via `stepRows[]`/`stepTableKey[]` arrays, not a single `prevRows` cursor.
+- `chainSteps` is a `shallowRef` — passing it as prop auto-unwraps, so `props.chainSteps.value = x` in a child silently no-ops. Composable takes an `updateChainSteps(newSteps)` callback; child emits `update:chainSteps`, parent does `chainSteps = $event`. One-way data flow.
 
 ## Saved API Endpoints (`/v1/endpoints` + `/v1/trace/:id`)
 
-Separate from Query Templates. **Endpoint** is saved chain config (`EndpointConfig` in `backend/src/services/endpointService.ts`) published as stable callable URL:
+Separate from Query Templates. **Endpoint** = saved chain config (`EndpointConfig` in `backend/src/services/endpointService.ts`) published as stable callable URL:
 
-- `EndpointConfig` shape: `rootTable`, `rootColumn`, `rootConditions[]`, `hops[]` (with optional `parentStepIdx` for branched chains), plus `paramBindings[]` (which step/column each URL query-param feeds), `visibleCols[]`, `allowedParams[]`.
-- `GET /api/v1/trace/:id` filters incoming query string against `allowedParams[]` ∪ root-condition columns (case-insensitive), runs chain via `endpointService.runChain()`, performs in-memory left-join of all steps via `endpointService.combineSteps()`, applies substring/multi-value filtering, returns JSON or `format=csv`.
-- `POST /api/v1/trace/:id` accepts JSON body + query params; arrays in body get joined with `\n` for multi-value IN-list filters.
-- Frontend management UI: `frontend/src/components/ApiManagerDialog.vue`.
+- `EndpointConfig`: `rootTable`, `rootColumn`, `rootConditions[]`, `hops[]` (optional `parentStepIdx` for branched chains), `paramBindings[]`, `visibleCols[]`, `allowedParams[]`.
+- `GET /api/v1/trace/:id` filters query string against `allowedParams[]` ∪ root-condition columns (case-insensitive), runs chain, left-joins steps via `combineSteps()`, applies substring/multi-value filtering, returns JSON or `format=csv`. `POST` variant accepts JSON body; arrays joined with `\n` for IN-list filters.
+- **Query param override behavior (fixed 2026-07-22, commits `6a2c649`+`fbede05`):** query params **override** matching rootConditions (same column) and non-overridden rootConditions are **skipped** when params present — so `?lotCoil=X` on an endpoint saved with `ptNo=...` searches by lotCoil alone instead of AND-ing both into 1 row. Frontend `ApiManagerDialog` test form shows all root-condition columns + `allowedParams`; `useCombinedRows.js` ports the same one-to-many fan-out join so combined view row count matches backend exactly.
 
-### Query Param Override Behavior (Fixed 2026-07-22)
+### RBAC (Smart API Directory)
 
-**Problem:** When endpoint saved with `rootConditions = [{ column: "ptNo", value: "PT260721158_L" }]`, calling API with `?lotCoil=DR10MCW260721D09-L` resulted in SQL `WHERE ptNo='PT260721158_L' AND lot_coil LIKE '%DR10MCW260721D09-L%'` → filtered to 1 root row instead of 4 rows matching lotCoil.
+`saved_endpoints` columns: `created_by` (EN from `x-user-en` header), `visibility` (`public`|`restricted`), `api_group` (default `General`). `endpoint_permissions(endpoint_id, user_en)` stores per-EN grants (synced via `endpointService.syncAllowedUsers()`).
 
-**Root Cause:**
-1. **Backend:** Query params were added as additional seeds, creating AND clauses with template rootConditions
-2. **Frontend:** ApiManagerDialog only showed `allowedParams` fields → missing rootConditions columns like `lotCoil`
+Route guards in `backend/src/index.ts`:
+- `GET /v1/endpoints` — scoped by `resolveViewer(headers)`: admins see all; others see public ∪ own ∪ granted
+- `POST /v1/endpoints` — requires valid `x-user-en` in `registry_users`
+- `PUT|DELETE /v1/endpoints/:id` — admin OR owner, else 403
+- `GET|POST /v1/trace/:id` — `canViewerAccess()` check, 403 for restricted endpoints
 
-**Fix (commits `6a2c649` + `fbede05`):**
+Frontend: Save API dialog in `TraceabilityFlow.vue` sends `x-user-en` from `localStorage['sg_admin_user']`; `ApiManagerDialog.vue` has group-filter pills, visibility/group tags, hides destructive UI from non-admins, and exposes an Access Permissions panel for admins/owners.
 
-**Backend (`endpointService.ts` → `runChain()`):**
-- Query params **override** matching rootConditions values (same column)
-- **Skip** non-overridden rootConditions when query params present (prevents unwanted AND)
-- Example: `?lotCoil=X` → skips `ptNo` condition, uses only `lotCoil=X` → gets all PT matching that lotCoil
+### Registry Manager RBAC
 
-**Frontend (`ApiManagerDialog.vue` + `useCombinedRows.js`):**
-- `allowedParamsList` now includes `rootConditions[].column` + `allowedParams` → shows form fields for all root columns
-- Ported backend `combineSteps()` fan-out logic: lookup Map is one-to-many (`Map<key, row[]>`), join loop expands rows (1 parent × N children = N output rows)
-- Combined view now matches backend row count exactly
-
-**Use Case:**
-```
-Endpoint: "PT ACA TO COIL DATA"
-  rootConditions: [{ column: "ptNo", operator: "eq", value: "PT260721158_L" }]
-  
-API Call: GET /api/v1/trace/apiPtAcaToCoilMagnetWireNo?lotCoil=DR10MCW260721D09-L
-
-Before Fix:
-  SQL: WHERE ptNo='PT260721158_L' AND lot_coil LIKE '%DR10MCW260721D09-L%'
-  Result: 3 rows (1 S1 row fan-out to 3 S3)
-  
-After Fix:
-  SQL: WHERE lot_coil LIKE '%DR10MCW260721D09-L%'  (ptNo condition skipped)
-  Result: 12 rows (4 S1 rows × ~3 S3 per row)
-  Frontend Combined view: also 12 rows (fan-out join working)
-```
-
-**Impact:** Generic solution — any endpoint can now be called with different root columns than template defaults without creating conflicting AND clauses. Frontend test forms show all root condition columns, not just explicitly allowed params.
-
-### Smart API Directory & RBAC (Added 2026-05-28)
-
-`saved_endpoints` carries three extra columns auto-added on startup:
-- `created_by` (VARCHAR 50) — Employee Number (EN) from `x-user-en` header
-- `visibility` (VARCHAR 50, default `'public'`) — `'public'` or `'restricted'`
-- `api_group` (VARCHAR 100, default `'General'`) — department/category label
-
-Companion table `endpoint_permissions(endpoint_id, user_en, assigned_at)` stores per-EN grants for restricted endpoints (synced via `endpointService.syncAllowedUsers()`).
-
-Route-level RBAC in `backend/src/index.ts`:
-- `GET /v1/endpoints` — scopes list using `resolveViewer(headers)`. Admins see everything; non-admin users see `visibility='public'` ∪ their own ∪ granted via `endpoint_permissions`.
-- `POST /v1/endpoints` — requires valid `x-user-en` (must exist in `registry_users`); EN recorded as `created_by`.
-- `PUT|DELETE /v1/endpoints/:id` — require `permission='admin'` OR `createdBy === viewer.en`; else 403.
-- `GET|POST /v1/trace/:id` — calls `endpointService.canViewerAccess(ep, viewer)`, returns 403 for restricted endpoints when caller not owner/admin/on allow-list.
-
-Frontend bits:
-- `TraceabilityFlow.vue` Save API dialog gains `apiGroup`, `visibility`, `allowedUsers` fields, sends `x-user-en` from `localStorage['sg_admin_user']`.
-- `ApiManagerDialog.vue` adds group-filter pills, shows visibility + group tags, hides Delete button and Developer Code Integration tab for non-admin/non-owner viewers (read-only sandbox), exposes "Access Permissions" panel for admins/owners that PUTs `apiGroup`/`visibility`/`allowedUsers` back to `/v1/endpoints/:id`.
+`registry_users(en, name, permission)` gates the Registry Manager UI: `POST /registry/login` verifies EN, `registry/*` mutations require admin EN header. UI: `LoginPanel.vue` + `UserManagementDialog.vue` in `TraceabilityFlow.vue`.
 
 ## Frontend Layout
 
-`App.vue` is thin shell. Real surface in `frontend/src/components/`:
+`App.vue` is a thin shell; `TraceabilityFlow.vue` imports everything else. Components in `frontend/src/components/`:
 - `TraceabilityFlow.vue` — main search + pivot chain UI (largest component)
+- `LoginPanel.vue` — EN login against `/registry/login` (stores `sg_admin_user` in localStorage)
+- `RegistryManagerDialog.vue` — add/edit dynamic tables (`registry_tables`) with column editor + test-query; **Connections tab** manages `registry_connections` (list + test + CRUD, admin-gated)
+- `UserManagementDialog.vue` — CRUD `registry_users`
 - `QueryTemplatesPanel.vue` — saved-templates sidebar/dialog
 - `ApiManagerDialog.vue` — CRUD UI for `/v1/endpoints`
 - `ExportOptionsDialog.vue` — Excel export (`xlsx` via `useExcelExport.js`)
@@ -185,54 +149,27 @@ Frontend bits:
 Composables in `frontend/src/composables/`:
 - `useQueryTemplates.js` — template CRUD + `runTemplateChain()` executor
 - `useChainTracker.js` — tracks live pivot chain state
-- `useCombinedRows.js` — client-side left-join of chain steps for combined-rows view
+- `useCombinedRows.js` — client-side fan-out left-join of chain steps for combined view
 - `useExcelExport.js` — `xlsx`-based workbook export
-
+- `useAutoStreamingDownload.js.disabled` — disabled streaming-download experiment (backend combine-job API removed)
 
 ## Planned Features
 
-### Multi-Column Pivot (Composite Key Joins)
+### Multi-Column Pivot (Composite Key Joins) — NOT implemented
 
-**Current:** Pivot uses single-column WHERE (`targetCol IN (...values)`).  
-**Need:** Some tables require multi-column WHERE for accurate joins — e.g., pivot to Bearing table needs `BONDING_FIXTURE` AND `DATE` together; WMS queries may need `LOT` AND `DCM`.
-
-**Plan:**
-1. **Registry:** Add optional `conditions?: Array<{fromCol, targetCol}>` to `TableLink` in `tableRegistry.ts`. If present, overrides single-column `fromColumn`/`targetColumn`.
-   ```ts
-   linksTo: [{
-     targetTable: 'SEAGATE_BONDING_FIXTURE_BEARING_G1',
-     targetColumn: 'bondingFixture',     // label for UI
-     fromColumn: 'bondingFixture',
-     conditions: [
-       { fromCol: 'bondingFixture', targetCol: 'bondingFixture' },
-       { fromCol: 'date', targetCol: 'date' }
-     ]
-   }]
-   ```
-
-2. **Pivot Service:** In `pivotService.ts`, if `link.conditions` exists, build composite WHERE using OR-chained tuples:
-   ```sql
-   SELECT * FROM target
-   WHERE (col1=? AND col2=?) OR (col1=? AND col2=?) OR ...
-   ```
-   MySQL 5.0 doesn't support `WHERE (col1,col2) IN ((?,?),...)` — must use OR-chain. Safe batch: 100 rows × 2 cols = 200 params (< 1000 limit).
-
-3. **Frontend:** 
-   - `TraceabilityFlow.vue` displays multi-column chips in Available Pivots
-   - Extract multiple source values when pivoting
-   - `useQueryTemplates.js` saves/replays `hop.conditions[]` in template
-   - `ApiManagerDialog.vue` supports multi-column param bindings in saved endpoints
-
-4. **Backward Compatibility:** Single-column pivots (existing templates/endpoints) continue working — `conditions` is optional. No data migration needed.
-
-**Status:** Planned, not implemented. Current codebase only supports single-column pivot.
+Pivot uses single-column WHERE (`targetCol IN (...values)`). Some joins need composite keys (e.g., Bearing needs `BONDING_FIXTURE` AND `DATE`; WMS may need `LOT` AND `DCM`). Plan: optional `conditions?: Array<{fromCol, targetCol}>` on `TableLink` in `tableRegistry.ts`, OR-chained tuple WHERE in `pivotService.ts` (MySQL 5.0 can't do `(col1,col2) IN ((?,?),...)`; 100 rows × 2 cols = 200 params fits batch limit), multi-column chips + template/endpoint support in frontend. Verified absent: no `conditions` handling in `pivotService.ts`.
 
 ## Behavior Rules
-- **Verify Before Action:** Always read the relevant files and search the codebase (`grep_search`, `view_file`) before making any edits or writing new code.
-- **No Guessing:** Never assume or guess that a function, variable, database column, component, or API endpoint exists. You must explicitly verify its presence in the codebase first.
-- **Maintain Integrity:** Verify the active server and database configuration from the configuration files before executing queries or running tests.
-- **ASK FOR TEST DATA EVERY TIME:** Before testing any feature (search, pivot, endpoint, query), ALWAYS ask the user to provide real test data (Serial Numbers, Lot Numbers, PT Numbers, etc.) from the actual database. NEVER use random/guessed/made-up values — they will always return 0 rows. Wait for user confirmation with actual data before running any test.
+- **Verify Before Action:** Always read the relevant files and search the codebase before making any edits or writing new code.
+- **No Guessing:** Never assume a function, variable, database column, component, or API endpoint exists — verify in the codebase first.
+- **Maintain Integrity:** Verify the active server and database configuration before executing queries or running tests.
+- **ASK FOR TEST DATA EVERY TIME:** Before testing any feature (search, pivot, endpoint, query), ALWAYS ask the user for real test data (SN, Lot, PT numbers, etc.) from the actual database. NEVER use random/guessed values — they will always return 0 rows. Wait for user confirmation before running any test.
 
 ## Reference Docs
 
-`AI_DEVELOPER_GUIDE.md`, `DEVELOPER_GUIDE.md`, `AI_WORKFLOW.md`, `WORKFLOW.md`, `USER_MANUAL.md`, `NOTE.txt`, `imprement.md` (Query Templates redesign), `IMPLEMENTATION_PLAN.md`, `PROJECT_MAP.md`, `AGENTS.md`, `PROJECT_PROMPT_SETUP.md`, `SETUP.txt`, `README.md` contain deeper background, resolved-bug history, end-user workflow. `spec/` directory holds original Excel/SQL samples schema was reverse-engineered from. When these docs disagree with code (batch size, port, localStorage-vs-MySQL), **code is authoritative** — markdown files have drifted.
+- `README.md` — project overview + deployment
+- `DEPLOY.md` — production deploy runbook (Docker Compose on prod box)
+- `SECURITY.md` — `.env` credential handling
+- `spec/` — original Excel/SQL samples the schema was reverse-engineered from, plus the original `/v1/trace` API design proposal (`spec/Api_endpoint.md`, feature since implemented)
+
+When docs disagree with code (batch size, port, row key shape), **code is authoritative**.

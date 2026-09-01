@@ -8,6 +8,7 @@ import {
   text,
   decimal,
   tinyint,
+  int,
 } from "drizzle-orm/mysql-core";
 
 // ============================================================
@@ -234,6 +235,7 @@ export const queryTemplates = mysqlTable("query_templates", {
 export const registryTables = mysqlTable("registry_tables", {
   id: varchar("id", { length: 64 }).primaryKey(),
   tableName: varchar("table_name", { length: 100 }).notNull().unique(),
+  dbTable: varchar("db_table", { length: 200 }), // ชื่อฟิสิคัลจริง (รองรับ DB.TABLE) — null = ใช้ tableName
   label: varchar("label", { length: 200 }).notNull(),
   connectionKey: varchar("connection_key", { length: 50 }).notNull().default("seagate"),
   customSql: text("custom_sql"),
@@ -251,6 +253,24 @@ export const registryUsers = mysqlTable("registry_users", {
   en: varchar("en", { length: 50 }).primaryKey(),
   name: varchar("name", { length: 100 }).notNull(),
   permission: varchar("permission", { length: 50 }).notNull().default("admin"),
+  createdAt: varchar("created_at", { length: 50 }).notNull(),
+  updatedAt: varchar("updated_at", { length: 50 }).notNull(),
+});
+
+// ============================================================
+// Table 15: registry_connections (Dynamic DB connections added from UI)
+// Fields: id, label, host, port, user, password, db_name, is_active
+// password เก็บ plaintext (ระดับ exposure เดียวกับ env) — API ไม่เคยส่งกลับ คืนแค่ hasPassword
+// ============================================================
+export const registryConnections = mysqlTable("registry_connections", {
+  id: varchar("id", { length: 50 }).primaryKey(),
+  label: varchar("label", { length: 200 }).notNull(),
+  host: varchar("host", { length: 255 }).notNull(),
+  port: int("port").notNull().default(3306),
+  user: varchar("user", { length: 100 }).notNull(),
+  password: varchar("password", { length: 200 }).notNull(),
+  dbName: varchar("db_name", { length: 100 }),
+  isActive: tinyint("is_active").notNull().default(1),
   createdAt: varchar("created_at", { length: 50 }).notNull(),
   updatedAt: varchar("updated_at", { length: 50 }).notNull(),
 });

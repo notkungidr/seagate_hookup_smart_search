@@ -39,6 +39,7 @@
 
 import { ref } from 'vue';
 import { PIVOT_BATCH_SIZE } from '../config/appConfig';
+import { isDateColumnName } from '../utils/dateTime.js';
 
 // ---- Large dataset threshold for auto backend mode ---------------------------
 const LARGE_DATASET_THRESHOLD = 200000; // 200K rows
@@ -382,8 +383,8 @@ function buildApiCondition(cond, columnsMeta) {
 
   const colMeta = columnsMeta.find(c => c.key === cond.column);
   const colLabel = colMeta?.label || cond.column;
-  const isDate = (colMeta?.label || cond.column).toLowerCase().includes('date')
-    || cond.column.toLowerCase().includes('date');
+  // ใช้ heuristic กลาง (utils/dateTime.js) — label หรือ key อันใดอันหนึ่งเป็นคอลัมน์วันที่ก็พอ
+  const isDate = isDateColumnName(colLabel) || isDateColumnName(cond.column);
 
   // IN
   if (cond.operator === 'in') {

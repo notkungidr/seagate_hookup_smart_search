@@ -1,0 +1,323 @@
+<title>Hookup Smart Search Architecture</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anuphan:wght@500;600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --ground: #EFF2F3;
+    --surface: #FBFCFC;
+    --ink: #22313A;
+    --muted: #5D7280;
+    --line: #C6D0D4;
+    --accent: #0E7C86;
+    --accent-soft: #0E7C861A;
+    --store: #9A6A2F;
+    --store-soft: #9A6A2F14;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #14191C;
+      --surface: #1B2226;
+      --ink: #DEE7EA;
+      --muted: #8CA0AA;
+      --line: #33414A;
+      --accent: #3FBFC9;
+      --accent-soft: #3FBFC91F;
+      --store: #D2A05C;
+      --store-soft: #D2A05C17;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #14191C;
+    --surface: #1B2226;
+    --ink: #DEE7EA;
+    --muted: #8CA0AA;
+    --line: #33414A;
+    --accent: #3FBFC9;
+    --accent-soft: #3FBFC91F;
+    --store: #D2A05C;
+    --store-soft: #D2A05C17;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "IBM Plex Sans Thai", sans-serif;
+    font-size: 15px;
+    line-height: 1.7;
+  }
+  main { max-width: 860px; margin: 0 auto; padding: 48px 24px 72px; }
+
+  .eyebrow {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 10px;
+  }
+  h1 {
+    font-family: "Anuphan", "IBM Plex Sans Thai", sans-serif;
+    font-size: 30px;
+    font-weight: 700;
+    line-height: 1.25;
+    margin: 0 0 8px;
+    text-wrap: balance;
+  }
+  .lede { color: var(--muted); margin: 0 0 20px; max-width: 60ch; }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 20px;
+    font-size: 12.5px;
+    color: var(--muted);
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    padding: 10px 0;
+    margin: 0 0 40px;
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; }
+  .legend i { width: 18px; height: 3px; border-radius: 2px; }
+  .legend .hot i { background: var(--accent); }
+  .legend .store i { background: var(--store); }
+
+  figure { margin: 0 0 56px; }
+  figcaption { margin: 0 0 14px; }
+  figcaption .no {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    color: var(--accent);
+    display: block;
+    margin-bottom: 4px;
+  }
+  figcaption strong {
+    font-family: "Anuphan", sans-serif;
+    font-size: 17px;
+    font-weight: 600;
+    display: block;
+    margin-bottom: 2px;
+  }
+  figcaption p { margin: 0; color: var(--muted); font-size: 14px; max-width: 62ch; }
+  .refs {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px;
+    color: var(--muted);
+    margin: 10px 0 0;
+  }
+  .refs b { font-weight: 500; color: var(--ink); }
+
+  .figwrap { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px; overflow-x: auto; }
+  svg { display: block; max-width: 100%; height: auto; color: var(--ink); }
+  svg text { font-family: "IBM Plex Sans Thai", sans-serif; fill: currentColor; }
+  svg .t-box { font-size: 12.5px; font-weight: 600; }
+  svg .t-sub { font-size: 10.5px; fill: var(--muted); }
+  svg .t-mono { font-family: "IBM Plex Mono", monospace; font-size: 11px; fill: var(--muted); }
+  svg .t-edge { font-size: 10.5px; fill: var(--muted); }
+  svg .edge { stroke: currentColor; stroke-width: 1.2; fill: none; }
+  svg .edge.hot { stroke: var(--accent); }
+  svg .box { fill: var(--surface); stroke: currentColor; stroke-width: 1.1; }
+  svg .box.hot { stroke: var(--accent); fill: var(--accent-soft); }
+  svg .box.store { stroke: var(--store); fill: var(--store-soft); }
+  svg .ah { fill: currentColor; }
+  svg .ah.hot { fill: var(--accent); }
+
+  footer {
+    border-top: 1px solid var(--line);
+    padding-top: 16px;
+    font-size: 12.5px;
+    color: var(--muted);
+  }
+  footer .mono { font-family: "IBM Plex Mono", monospace; font-size: 11.5px; }
+</style>
+
+<main>
+  <p class="eyebrow">Seagate Hookup Smart Search · Internal</p>
+  <h1>กลไกหลัก 3 ชั้นของระบบ</h1>
+  <p class="lede">เส้นทางของ request, ตารางสองชั้นที่ shadow กันเอง, และ pivot chain ที่ถูกบีบด้วย batch สองชั้น — สามภาพนี้คือกลไกที่แก้บั๊กซ้ำๆ มาแล้ว แตะโค้ดก่อนเห็นภาพ = เสี่ยงพังซ้ำรอบใหม่</p>
+
+  <div class="legend">
+    <span class="hot"><i></i>เส้นทางร้อน / ชั้นที่ active</span>
+    <span class="store"><i></i>store ถาวร (MySQL)</span>
+  </div>
+
+  <figure>
+    <figcaption>
+      <span class="no">FIG 1 — REQUEST PATH</span>
+      <strong>Request ทุกเส้นเข้าแอปเดียวผ่าน prefix คู่</strong>
+      <p>หน้าบ้านยิงผ่าน mount สองเส้นที่ลง route set เดียวกัน แล้วบริการแต่ละตัวดึง pool ตาม key — ผลลัพธ์ทุกชุดกลับมาเป็น row ที่ SELECT ด้วย alias label ไม่ใช่ชื่อคอลัมน์จริง</p>
+    </figcaption>
+    <div class="figwrap">
+      <svg viewBox="0 0 780 310" role="img" aria-label="Request จาก Vue SPA เข้าผ่านสอง route prefix ลง Elysia app ตัวเดียว แล้วไปยัง MySQL pools ตาม key โดย rows กลับมาเป็น label-keyed">
+        <defs>
+          <marker id="ah1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="ah"/>
+          </marker>
+          <marker id="ah1h" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="ah hot"/>
+          </marker>
+        </defs>
+
+        <rect x="16" y="118" width="132" height="64" rx="6" class="box"/>
+        <text x="82" y="145" text-anchor="middle" class="t-box">Vue SPA</text>
+        <text x="82" y="162" text-anchor="middle" class="t-sub">TraceabilityFlow</text>
+
+        <rect x="210" y="84" width="196" height="44" rx="6" class="box"/>
+        <text x="308" y="104" text-anchor="middle" class="t-mono">/api/*</text>
+        <text x="308" y="119" text-anchor="middle" class="t-sub">dev / direct</text>
+
+        <rect x="210" y="168" width="196" height="44" rx="6" class="box"/>
+        <text x="308" y="188" text-anchor="middle" class="t-mono">/prodline/…/api/*</text>
+        <text x="308" y="203" text-anchor="middle" class="t-sub">reverse-proxy บน prod</text>
+
+        <rect x="468" y="84" width="150" height="128" rx="6" class="box"/>
+        <text x="543" y="112" text-anchor="middle" class="t-box">Elysia app</text>
+        <text x="543" y="136" text-anchor="middle" class="t-sub">search · pivot</text>
+        <text x="543" y="152" text-anchor="middle" class="t-sub">endpoint · template</text>
+        <text x="543" y="168" text-anchor="middle" class="t-sub">registry</text>
+
+        <rect x="664" y="84" width="100" height="128" rx="6" class="box store"/>
+        <text x="714" y="118" text-anchor="middle" class="t-box">MySQL</text>
+        <text x="714" y="134" text-anchor="middle" class="t-box">pools</text>
+        <text x="714" y="156" text-anchor="middle" class="t-sub">lazy · key ตามชื่อ</text>
+        <text x="714" y="172" text-anchor="middle" class="t-sub">timeout 120s</text>
+
+        <line x1="148" y1="150" x2="204" y2="108" class="edge" marker-end="url(#ah1)"/>
+        <line x1="148" y1="150" x2="204" y2="188" class="edge" marker-end="url(#ah1)"/>
+        <text x="170" y="144" text-anchor="middle" class="t-edge">fetch</text>
+
+        <line x1="406" y1="106" x2="462" y2="128" class="edge" marker-end="url(#ah1)"/>
+        <line x1="406" y1="190" x2="462" y2="168" class="edge" marker-end="url(#ah1)"/>
+        <text x="434" y="150" text-anchor="middle" class="t-edge">แอปเดียวกัน</text>
+
+        <line x1="618" y1="148" x2="658" y2="148" class="edge" marker-end="url(#ah1)"/>
+        <text x="638" y="140" text-anchor="middle" class="t-mono">getDb(key)</text>
+
+        <path d="M 543 212 C 543 282, 82 282, 82 188" class="edge hot" marker-end="url(#ah1h)"/>
+        <text x="312" y="296" text-anchor="middle" class="t-edge">rows กลับมา key ด้วย label — SELECT dbCol AS '&lt;label&gt;'</text>
+      </svg>
+    </div>
+    <p class="refs">โค้ด: <b>backend/src/index.ts</b> (mount คู่ ณ บรรทัดท้าย) · <b>db/client.ts</b> (CONNECTION_CONFIGS) · <b>config/tableRegistry.ts</b> (buildSelectClause)</p>
+  </figure>
+
+  <figure>
+    <figcaption>
+      <span class="no">FIG 2 — TWO-LAYER REGISTRY</span>
+      <strong>ตาราง dynamic shadow ตารางในโค้ดด้วยชื่อเดียวกัน</strong>
+      <p>getTableMeta มอง cache ของ registry_tables ก่อนเสมอ แล้วจึง fallback ไป TABLE_REGISTRY ในโค้ด — เพิ่มตารางจาก UI ได้โดยไม่ deploy ใหม่ และ GET /tables จะ reload ให้ทุกครั้งเพื่อ sync หลายเครื่อง</p>
+    </figcaption>
+    <div class="figwrap">
+      <svg viewBox="0 0 780 330" role="img" aria-label="Registry Manager UI เขียนลง registry_tables บน MySQL, reload เข้าสู่ in-memory cache, getTableMeta เลือก cache ก่อนแล้ว fallback ไป TABLE_REGISTRY ในโค้ด">
+        <defs>
+          <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="ah"/>
+          </marker>
+          <marker id="ah2h" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="ah hot"/>
+          </marker>
+        </defs>
+
+        <rect x="24" y="24" width="200" height="60" rx="6" class="box store"/>
+        <text x="124" y="50" text-anchor="middle" class="t-box">registry_tables</text>
+        <text x="124" y="68" text-anchor="middle" class="t-sub">SeagateDev MySQL</text>
+
+        <rect x="24" y="170" width="200" height="56" rx="6" class="box"/>
+        <text x="124" y="194" text-anchor="middle" class="t-box">Registry Manager UI</text>
+        <text x="124" y="211" text-anchor="middle" class="t-sub">+ login ผ่าน registry_users</text>
+
+        <line x1="124" y1="170" x2="124" y2="90" class="edge" marker-end="url(#ah2)"/>
+        <text x="132" y="134" text-anchor="start" class="t-edge">POST / PUT /registry/*</text>
+
+        <path d="M 224 54 L 395 54 L 395 164" class="edge hot" marker-end="url(#ah2h)"/>
+        <text x="310" y="44" text-anchor="middle" class="t-edge">reloadDynamicRegistry() — ทุกครั้งที่ GET /tables</text>
+
+        <rect x="300" y="170" width="190" height="56" rx="6" class="box hot"/>
+        <text x="395" y="194" text-anchor="middle" class="t-box">_dynamicRegistry</text>
+        <text x="395" y="211" text-anchor="middle" class="t-sub">in-memory cache</text>
+
+        <rect x="300" y="268" width="190" height="48" rx="6" class="box"/>
+        <text x="395" y="288" text-anchor="middle" class="t-box">TABLE_REGISTRY</text>
+        <text x="395" y="304" text-anchor="middle" class="t-sub">ในโค้ด (static)</text>
+
+        <path d="M 600 158 L 662 198 L 600 238 L 538 198 Z" class="box hot"/>
+        <text x="600" y="194" text-anchor="middle" class="t-box">getTableMeta</text>
+        <text x="600" y="210" text-anchor="middle" class="t-mono">(name)</text>
+
+        <line x1="490" y1="198" x2="532" y2="198" class="edge hot" marker-end="url(#ah2h)"/>
+        <text x="511" y="188" text-anchor="middle" class="t-edge">hit → ใช้</text>
+
+        <path d="M 490 292 L 600 292 L 600 244" class="edge" marker-end="url(#ah2)"/>
+        <text x="545" y="282" text-anchor="middle" class="t-edge">miss → fallback</text>
+
+        <line x1="662" y1="198" x2="748" y2="198" class="edge" marker-end="url(#ah2)"/>
+        <text x="705" y="188" text-anchor="middle" class="t-edge">→ services</text>
+      </svg>
+    </div>
+    <p class="refs">โค้ด: <b>services/registryService.ts</b> (reloadDynamicRegistry) · <b>config/tableRegistry.ts</b> (getTableMeta — dynamic มาก่อน) · <b>wms_lot_info</b> = ตัวอย่าง seed ที่ใช้ customSql multiQuery</p>
+  </figure>
+
+  <figure>
+    <figcaption>
+      <span class="no">FIG 3 — PIVOT CHAIN</span>
+      <strong>Batch สองชั้นบีบทุก hop แล้วจบด้วย fan-out join</strong>
+      <p>Frontend ตัด batch ที่ 100 ค่าต่อ request เป็นด่านกันพลาดชั้นแรก backend ขยายเป็น 5,000 ต่อ SQL ชั้นเดียว row ที่ได้กลับมาเป็น label จึงหยิบค่าต่อด้วย row[fromDbColumn] เสมอ — จบ chain ด้วย combineSteps ที่ขยาย 1 แถวพ่อ → N แถวลูก</p>
+    </figcaption>
+    <div class="figwrap">
+      <svg viewBox="0 0 780 300" role="img" aria-label="Pipeline: ค่าจาก step ก่อนหน้าถูกตัด batch 100 ที่ frontend, 5000 ต่อ SQL ที่ backend, ค้น target table ด้วย IN, rows กลับมาเป็น label แล้ววนเข้า hop ถัดไปหรือรวมด้วย combineSteps fan-out join เป็น JSON/CSV">
+        <defs>
+          <marker id="ah3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="ah"/>
+          </marker>
+          <marker id="ah3h" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="ah hot"/>
+          </marker>
+        </defs>
+
+        <rect x="16" y="100" width="168" height="70" rx="6" class="box"/>
+        <text x="100" y="126" text-anchor="middle" class="t-box">step ก่อนหน้า</text>
+        <text x="100" y="146" text-anchor="middle" class="t-mono">row[fromDbColumn]</text>
+        <text x="100" y="161" text-anchor="middle" class="t-sub">(label-keyed)</text>
+
+        <rect x="232" y="100" width="128" height="70" rx="6" class="box hot"/>
+        <text x="296" y="126" text-anchor="middle" class="t-box">frontend</text>
+        <text x="296" y="144" text-anchor="middle" class="t-sub">batch ≤ 100</text>
+        <text x="296" y="159" text-anchor="middle" class="t-sub">ต่อ /api/pivot</text>
+
+        <rect x="408" y="100" width="140" height="70" rx="6" class="box"/>
+        <text x="478" y="126" text-anchor="middle" class="t-box">pivotService</text>
+        <text x="478" y="144" text-anchor="middle" class="t-sub">batch = 5,000</text>
+        <text x="478" y="159" text-anchor="middle" class="t-sub">ต่อ SQL</text>
+
+        <rect x="596" y="100" width="168" height="70" rx="6" class="box store"/>
+        <text x="680" y="126" text-anchor="middle" class="t-box">target table</text>
+        <text x="680" y="148" text-anchor="middle" class="t-mono">WHERE col IN (…)</text>
+
+        <line x1="184" y1="135" x2="226" y2="135" class="edge" marker-end="url(#ah3)"/>
+        <text x="205" y="125" text-anchor="middle" class="t-edge">ค่า source</text>
+        <line x1="360" y1="135" x2="402" y2="135" class="edge" marker-end="url(#ah3)"/>
+        <text x="381" y="125" text-anchor="middle" class="t-edge">ยิง</text>
+        <line x1="548" y1="135" x2="590" y2="135" class="edge" marker-end="url(#ah3)"/>
+        <text x="569" y="125" text-anchor="middle" class="t-edge">IN</text>
+
+        <path d="M 680 170 L 680 210 L 100 210 L 100 176" class="edge hot" marker-end="url(#ah3h)"/>
+        <text x="390" y="202" text-anchor="middle" class="t-edge">hop ถัดไป — หยิบค่าต่อด้วย label เสมอ</text>
+
+        <rect x="232" y="236" width="320" height="52" rx="6" class="box"/>
+        <text x="392" y="258" text-anchor="middle" class="t-box">combineSteps — fan-out left-join</text>
+        <text x="392" y="276" text-anchor="middle" class="t-sub">1 แถวพ่อ × N แถวลูก = N แถวผลลัพธ์</text>
+
+        <path d="M 720 170 L 720 262 L 558 262" class="edge" marker-end="url(#ah3)"/>
+        <text x="690" y="240" text-anchor="end" class="t-edge">จบ chain</text>
+
+        <line x1="232" y1="262" x2="140" y2="262" class="edge" marker-end="url(#ah3)"/>
+        <text x="186" y="284" text-anchor="middle" class="t-edge">JSON / CSV</text>
+      </svg>
+    </div>
+    <p class="refs">โค้ด: <b>useQueryTemplates.js</b> (PIVOT_BATCH_SIZE=100) · <b>config/appConfig.ts</b> (BATCH_SIZE=5000) · <b>endpointService.ts</b> (combineSteps) · <b>useCombinedRows.js</b> (port ลอจิกเดียวกันมาฝั่งหน้าบ้าน)</p>
+  </figure>
+
+  <footer>
+    <p>ตัวเลขและชื่อทั้งหมดตรวจกับโค้ด ณ 01 ก.ย. 2026 — ถ้าเอกสารขัดกับโค้ด ให้โค้ดเป็นตัวตั้ง · รายละเอียดเต็มอยู่ใน <span class="mono">CLAUDE.md</span></p>
+  </footer>
+</main>

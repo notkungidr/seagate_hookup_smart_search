@@ -1,4 +1,5 @@
 import { computed, reactive, watch } from 'vue';
+import { fmtRowDates } from '../utils/dateTime.js';
 
 export function useChainTracker(chainSteps) {
   const currentPage = reactive({});
@@ -55,6 +56,8 @@ export function useChainTracker(chainSteps) {
 
   const filteredRowsByStep = computed(() => chainSteps.value.map((step, idx) => {
     if (!step?.rows) return [];
+    // ponytail: idempotent — แปลง ISO → "YYYY-MM-DD HH:MM:SS" ที่จุดเดียว ครอบ UI/combined/pivot/export ทุกทาง
+    for (const row of step.rows) fmtRowDates(row);
     const filter = (debouncedFilters[idx] || '').trim().toLowerCase();
     if (!filter) return step.rows;
     return step.rows.filter((row) => Object.values(row).some((value) => (

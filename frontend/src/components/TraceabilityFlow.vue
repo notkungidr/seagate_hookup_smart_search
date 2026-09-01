@@ -344,9 +344,20 @@
               <div class="condition-field">
                 <label class="field-label">ค่าที่ค้นหา (Value)</label>
 
+                <!-- DATETIME Range Picker (dt$ เช่น create_dt — ระบุเวลาได้ถึงวินาที) -->
+                <el-date-picker
+                  v-if="cond.operator === 'between' && isDateTimeColumn(cond.column)"
+                  v-model="cond.dateRange"
+                  type="datetimerange"
+                  range-separator="ถึง"
+                  start-placeholder="จากวันที่เวลา"
+                  end-placeholder="ถึงวันที่เวลา"
+                  value-format="YYYY-MM-DD HH:mm:ss"
+                  style="width:100%"
+                />
                 <!-- Date Range Picker (Between for Date Columns) -->
                 <el-date-picker
-                  v-if="cond.operator === 'between' && isDateColumn(cond.column)"
+                  v-else-if="cond.operator === 'between' && isDateColumn(cond.column)"
                   v-model="cond.dateRange"
                   type="daterange"
                   range-separator="ถึง"
@@ -355,8 +366,8 @@
                   value-format="YYYY-MM-DD"
                   style="width:100%"
                 />
-                <!-- Quick Date Presets for Date Range -->
-                <div v-if="cond.operator === 'between' && isDateColumn(cond.column)" class="date-preset-bar">
+                <!-- Quick Date Presets for Date Range (เฉพาะคอลัมน์วันที่แบบไม่มีเวลา) -->
+                <div v-if="cond.operator === 'between' && isDateColumn(cond.column) && !isDateTimeColumn(cond.column)" class="date-preset-bar">
                   <span class="preset-btn" @click="applyDatePreset(cond, 'today')">วันนี้</span>
                   <span class="preset-btn" @click="applyDatePreset(cond, 'yesterday')">เมื่อวาน</span>
                   <span class="preset-btn" @click="applyDatePreset(cond, 'last7')">7 วัน</span>
@@ -381,6 +392,15 @@
                   />
                 </div>
 
+                <!-- Single DATETIME Picker (dt$) -->
+                <el-date-picker
+                  v-else-if="cond.operator !== 'in' && isDateTimeColumn(cond.column)"
+                  v-model="cond.value"
+                  type="datetime"
+                  placeholder="เลือกวันที่เวลา"
+                  value-format="YYYY-MM-DD HH:mm:ss"
+                  style="width:100%"
+                />
                 <!-- Single Date Picker (LIKE / EQ / GTE / LTE for Date Columns) -->
                 <el-date-picker
                   v-else-if="cond.operator !== 'in' && isDateColumn(cond.column)"
@@ -390,8 +410,8 @@
                   value-format="YYYY-MM-DD"
                   style="width:100%"
                 />
-                <!-- Quick Date Presets for Single Date -->
-                <div v-if="cond.operator !== 'in' && isDateColumn(cond.column)" class="date-preset-bar">
+                <!-- Quick Date Presets for Single Date (เฉพาะคอลัมน์วันที่แบบไม่มีเวลา) -->
+                <div v-if="cond.operator !== 'in' && isDateColumn(cond.column) && !isDateTimeColumn(cond.column)" class="date-preset-bar">
                   <span class="preset-btn" @click="applyDatePreset(cond, 'today')">วันนี้</span>
                   <span class="preset-btn" @click="applyDatePreset(cond, 'yesterday')">เมื่อวาน</span>
                   <span class="preset-btn" @click="applyDatePreset(cond, 'last7')">7 วัน</span>
@@ -401,7 +421,7 @@
 
                 <!-- Regular Input (LIKE / EQ / GTE / LTE for non-Date Columns) -->
                 <el-input
-                  v-else-if="cond.operator !== 'in'"
+                  v-else-if="cond.operator !== 'in' && !isDateColumn(cond.column)"
                   v-model="cond.value"
                   placeholder="กรอกค่า..."
                   clearable
@@ -1528,6 +1548,7 @@ import LoginPanel from './LoginPanel.vue';
 import UserManagementDialog from './UserManagementDialog.vue';
 import { useChainTracker } from '../composables/useChainTracker';
 import { useCombinedRows, isDateColumnName } from '../composables/useCombinedRows';
+import { isDateTimeColumnName } from '../utils/dateTime.js';
 import { useExcelExport } from '../composables/useExcelExport';
 import { PIVOT_BATCH_SIZE, fetchAppConfig } from '../config/appConfig';
 
@@ -1925,14 +1946,9 @@ onMounted(() => {
   refreshTemplates();
 });
 
-function isDateColumn(column) {
-  if (!column) return false;
-  const normalized = column.toLowerCase();
-  if (normalized.includes('user_reg') || normalized.includes('user_upd') || normalized.includes('userreg') || normalized.includes('userupd')) {
-    return false;
-  }
-  return normalized.includes('date') || normalized.includes('time') || normalized.includes('crdt') || normalized === 'reg' || normalized === 'upd';
-}
+// heuristic ย้ายไป utils/dateTime.js (เดิมสำเนา 3 จุด) — create_dt/createDt เข้าเงื่อนไข /dt$ แล้ว
+const isDateColumn = isDateColumnName;
+const isDateTimeColumn = isDateTimeColumnName;
 
 function applyDatePreset(cond, preset) {
   const today = new Date();

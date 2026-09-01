@@ -401,6 +401,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
+import { fmtRowDates } from '../utils/dateTime.js';
 
 const props = defineProps({
   modelValue: { type: Boolean, required: true },
@@ -664,6 +665,8 @@ async function testEndpoint() {
     const result = await res.json();
     latency.value = Math.round(performance.now() - startTime);
     if (res.status === 200) {
+      // จัด format วันที่ให้ตรงกับ UI หลัก (grid เท่านั้น — Raw JSON tab คง raw ไว้)
+      if (Array.isArray(result?.data)) result.data.forEach(fmtRowDates);
       testResult.value = result;
     } else {
       ElMessage.error(result.message || 'Query execution failed');
