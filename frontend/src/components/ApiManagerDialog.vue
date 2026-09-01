@@ -133,8 +133,12 @@
                 <!-- Parameters form -->
                 <div class="params-column">
                   <div class="section-title">Query Parameters (Allowed)</div>
-                  <p class="section-desc">Values below will be injected as filters to dynamically query the data.</p>
-                  
+                  <p class="section-desc">
+                    Values below will be injected as filters to dynamically query the data.
+                    <br />Operator ต่อท้ายชื่อ param ได้: <code>__gte</code> <code>__lte</code> <code>__between</code> <code>__in</code> <code>__eq</code> <code>__like</code>
+                    เช่น <code>S4_REQ_DATE__between=2026-08-01,2026-08-31 23:59:59</code> (ไม่ใส่ = ค้นแบบมีคำนั้นอยู่)
+                  </p>
+
                   <div v-if="allowedParamsList.length === 0" class="no-params-alert">
                     This endpoint does not define allowed query parameters. It will execute with its default root query.
                   </div>

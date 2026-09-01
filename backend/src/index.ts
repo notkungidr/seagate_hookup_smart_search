@@ -75,14 +75,58 @@ async function resolveViewer(headers: Record<string, string | undefined>): Promi
  * `S2_col` cannot be substituted with `S3_col` or bare `col`. Root conditions
  * also allow bare keys (and explicit S1_ keys) for backwards compatibility.
  */
+/** Reserved query keys that are never data filters. */
+const TRACE_RESERVED_PARAMS = new Set(["format"]);
+
+/**
+ * Admits caller params and REJECTS unknown ones loudly. A silently-dropped typo
+ * (e.g. `S4_REQ_DATE_gte` — single underscore) used to return 200 with unfiltered
+ * data, which is worse than an error for an API other projects consume.
+ */
+function admitTraceParams(
+  incoming: Record<string, string>,
+  rootColumns: Set<string>,
+  allowedList: string[],
+): Record<string, string> {
+  const admitted: Record<string, string> = {};
+  const rejected: string[] = [];
+
+  for (const [paramName, paramValue] of Object.entries(incoming)) {
+    if (TRACE_RESERVED_PARAMS.has(paramName.toLowerCase())) continue;
+    if (paramValue === undefined || paramValue === "") continue;
+    // Forward the ORIGINAL key (preserves S<n>_ prefix so runChain can pin the step)
+    if (paramMatchesAllowed(paramName, rootColumns, allowedList)) {
+      admitted[paramName] = paramValue;
+    } else {
+      rejected.push(paramName);
+    }
+  }
+
+  if (rejected.length > 0) {
+    const known = [...new Set([...rootColumns, ...allowedList])].sort().join(", ");
+    const opTypo = rejected.find((p) => /_(eq|like|in|between|gte|lte)$/i.test(p));
+    const hint = opTypo
+      ? ` Operator suffix needs TWO underscores — did you mean "${opTypo.replace(/_(eq|like|in|between|gte|lte)$/i, (m) => "_" + m)}"?`
+      : "";
+    throw new Error(
+      `Unknown parameter(s): ${rejected.join(", ")}.${hint} Allowed: ${known}. ` +
+      `Optional operator suffixes: __eq __like __in __between __gte __lte`,
+    );
+  }
+
+  return admitted;
+}
+
 function paramMatchesAllowed(paramName: string, rootColumns: Set<string>, allowedList: string[]): boolean {
-  const pLower = paramName.toLowerCase();
-  const pPrefix = paramName.match(/^S(\d+)_(.+)$/i);
+  // `__op` suffix (e.g. col__gte) inherits its base name's admission
+  const { cleanName } = endpointService.parseParamOperator(paramName);
+  const pLower = cleanName.toLowerCase();
+  const pPrefix = cleanName.match(/^S(\d+)_(.+)$/i);
   // A step prefix is a real binding, not decoration. Never admit S3_field
   // merely because S2_field (or bare field) was allowed.
   if (!pPrefix && rootColumns.has(pLower)) return true;
   if (pPrefix && Number(pPrefix[1]) === 1 && rootColumns.has(pPrefix[2].toLowerCase())) return true;
-  return allowedList.some((p) => p.toLowerCase() === pLower);
+  return allowedList.some((p) => endpointService.parseParamOperator(p).cleanName.toLowerCase() === pLower);
 }
 
 // ── CORS & Swagger ─────────────────────────────────────────────────────────
@@ -798,7 +842,6 @@ const apiRoutes = new Elysia()
 
       const { format, ...searchParams } = query as Record<string, string>;
 
-      const allowedSearchParams: Record<string, string> = {};
       const allowedList = ep.config.allowedParams || [];
       const rootColumns = new Set<string>();
       if (ep.config.rootColumn) rootColumns.add(ep.config.rootColumn.toLowerCase());
@@ -808,13 +851,7 @@ const apiRoutes = new Elysia()
         });
       }
 
-      for (const [paramName, paramValue] of Object.entries(searchParams)) {
-        if (paramValue === undefined || paramValue === "") continue;
-        // Forward the ORIGINAL key (preserves S<n>_ prefix so runChain can pin the step)
-        if (paramMatchesAllowed(paramName, rootColumns, allowedList)) {
-          allowedSearchParams[paramName] = paramValue;
-        }
-      }
+      const allowedSearchParams = admitTraceParams(searchParams, rootColumns, allowedList);
 
       // 1. Run database chains
       console.error(`[TRACE] runChain with params:`, allowedSearchParams);
@@ -827,37 +864,8 @@ const apiRoutes = new Elysia()
       const combinedRows = endpointService.combineSteps(result.steps, ep.config);
       console.error(`[TRACE] combineSteps returned ${combinedRows.length} rows`);
 
-      // 3. Filter combined rows in-memory by query parameters (exact/substring/multi-value search with dynamic alias fallback)
-      let filteredRows = combinedRows;
-      for (const [paramName, paramValue] of Object.entries(allowedSearchParams)) {
-        // Registry-bound params were already applied by SearchService on their
-        // exact step. Re-filtering the projected grid can target the wrong
-        // duplicate column (or a hidden column) and incorrectly erase results.
-        if (endpointService.isDatabaseParameter(ep.config, paramName)) continue;
-        const rawString = String(paramValue).trim();
-        const valList = rawString.split(/[\n,]+/).map(v => v.trim().toLowerCase()).filter(Boolean);
-        if (valList.length === 0) continue;
-
-        filteredRows = filteredRows.filter((row) => {
-          // Strip S<n>_ prefix from param name for row-key matching
-          const cleanParamName = paramName.replace(/^S\d+_/i, "");
-          let cellVal = row[cleanParamName];
-          if (cellVal === undefined) {
-            // Case/underscore-insensitive key matching
-            const normParam = cleanParamName.toLowerCase().replace(/[^a-z0-9]/g, "");
-            const foundKey = Object.keys(row).find(
-              (k) => k.toLowerCase().replace(/[^a-z0-9]/g, "") === normParam
-            );
-            if (foundKey) {
-              cellVal = row[foundKey];
-            }
-          }
-
-          if (cellVal == null) return false;
-          const cellStr = String(cellVal).trim().toLowerCase();
-          return valList.some(v => cellStr.includes(v) || v.includes(cellStr));
-        });
-      }
+      // 3. Filter combined rows in-memory (bare = legacy substring; `__gte`/`__lte`/`__between`/`__in`/`__eq`/`__like` = operator)
+      const filteredRows = endpointService.filterCombinedRows(ep.config, combinedRows, allowedSearchParams);
       console.error(`[TRACE] After in-memory filter: ${filteredRows.length} rows`);
 
       if (format === "csv") {
@@ -929,7 +937,6 @@ const apiRoutes = new Elysia()
         }
       }
 
-      const allowedSearchParams: Record<string, string> = {};
       const allowedList = ep.config.allowedParams || [];
       const rootColumns = new Set<string>();
       if (ep.config.rootColumn) rootColumns.add(ep.config.rootColumn.toLowerCase());
@@ -939,12 +946,7 @@ const apiRoutes = new Elysia()
         });
       }
 
-      for (const [paramName, paramValue] of Object.entries(mergedParams)) {
-        // Forward the ORIGINAL key (preserves S<n>_ prefix so runChain can pin the step)
-        if (paramMatchesAllowed(paramName, rootColumns, allowedList)) {
-          allowedSearchParams[paramName] = paramValue;
-        }
-      }
+      const allowedSearchParams = admitTraceParams(mergedParams, rootColumns, allowedList);
 
       // 1. Run database chains
       console.error(`[TRACE] runChain with params:`, allowedSearchParams);
@@ -957,34 +959,8 @@ const apiRoutes = new Elysia()
       const combinedRows = endpointService.combineSteps(result.steps, ep.config);
       console.error(`[TRACE] combineSteps returned ${combinedRows.length} rows`);
 
-      // 3. Filter combined rows in-memory by query parameters (exact/substring/multi-value search with dynamic alias fallback)
-      let filteredRows = combinedRows;
-      for (const [paramName, paramValue] of Object.entries(allowedSearchParams)) {
-        if (endpointService.isDatabaseParameter(ep.config, paramName)) continue;
-        const rawString = String(paramValue).trim();
-        const valList = rawString.split(/[\n,]+/).map(v => v.trim().toLowerCase()).filter(Boolean);
-        if (valList.length === 0) continue;
-
-        filteredRows = filteredRows.filter((row) => {
-          // Strip S<n>_ prefix from param name for row-key matching
-          const cleanParamName = paramName.replace(/^S\d+_/i, "");
-          let cellVal = row[cleanParamName];
-          if (cellVal === undefined) {
-            // Case/underscore-insensitive key matching
-            const normParam = cleanParamName.toLowerCase().replace(/[^a-z0-9]/g, "");
-            const foundKey = Object.keys(row).find(
-              (k) => k.toLowerCase().replace(/[^a-z0-9]/g, "") === normParam
-            );
-            if (foundKey) {
-              cellVal = row[foundKey];
-            }
-          }
-
-          if (cellVal == null) return false;
-          const cellStr = String(cellVal).trim().toLowerCase();
-          return valList.some(v => cellStr.includes(v) || v.includes(cellStr));
-        });
-      }
+      // 3. Filter combined rows in-memory (bare = legacy substring; `__gte`/`__lte`/`__between`/`__in`/`__eq`/`__like` = operator)
+      const filteredRows = endpointService.filterCombinedRows(ep.config, combinedRows, allowedSearchParams);
 
       const responseFormat = format || (body && (body as any).format) || "json";
 

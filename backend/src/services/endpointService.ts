@@ -194,7 +194,8 @@ export class EndpointService {
   /** True when a URL parameter resolves to a concrete registry field on one chain step. */
   isDatabaseParameter(input: EndpointConfig, paramName: string): boolean {
     const config = this.normalizeConfig(input);
-    const prefix = paramName.match(/^S(\d+)_(.+)$/i);
+    const { cleanName } = this.parseParamOperator(paramName);
+    const prefix = cleanName.match(/^S(\d+)_(.+)$/i);
     if (prefix) {
       const stepIdx = Number(prefix[1]) - 1;
       if (stepIdx < 0 || stepIdx > config.hops.length) return false;
@@ -215,6 +216,77 @@ export class EndpointService {
       }
     }
     return false;
+  }
+
+  /** URL param operator suffixes — `col__gte=...`. Bare key keeps legacy auto behavior. */
+  private static readonly PARAM_OPS = ["eq", "like", "in", "between", "gte", "lte"];
+
+  /** Parse `name__op` → { cleanName, op }. Unknown/absent suffix → op null (whole name is the column). */
+  parseParamOperator(paramName: string): { cleanName: string; op: string | null } {
+    const idx = paramName.lastIndexOf("__");
+    if (idx <= 0) return { cleanName: paramName, op: null };
+    const tail = paramName.slice(idx + 2).toLowerCase();
+    if (!EndpointService.PARAM_OPS.includes(tail)) return { cleanName: paramName, op: null };
+    return { cleanName: paramName.slice(0, idx), op: tail };
+  }
+
+  /** gte/lte/between compare: numeric when both sides are numbers, else plain string
+   *  compare (correct for "YYYY-MM-DD HH:mm:ss" — dateStrings keeps lexicographic = chronological). */
+  private compareCells(a: string, b: string): number {
+    const na = Number(a), nb = Number(b);
+    if (a.trim() !== "" && b.trim() !== "" && !Number.isNaN(na) && !Number.isNaN(nb)) {
+      return na < nb ? -1 : na > nb ? 1 : 0;
+    }
+    return a < b ? -1 : a > b ? 1 : 0;
+  }
+
+  /**
+   * In-memory filter of the combined grid by API params that were NOT applied at
+   * SQL level. Bare param = legacy bidirectional substring; `__op` suffix applies
+   * eq/like/in/between/gte/lte to the matched row column.
+   */
+  filterCombinedRows(config: EndpointConfig, rows: Record<string, any>[], queryParams: Record<string, string>): Record<string, any>[] {
+    let filtered = rows;
+    for (const [paramName, paramValue] of Object.entries(queryParams)) {
+      if (this.isDatabaseParameter(config, paramName)) continue;
+      const { cleanName, op } = this.parseParamOperator(paramName);
+      const rawString = String(paramValue ?? "").trim();
+      if (!rawString) continue;
+      const valList = rawString.split(/[\n,]+/).map(v => v.trim().toLowerCase()).filter(Boolean);
+      if (valList.length === 0) continue;
+      if (op === "between" && valList.length < 2) continue; // malformed between — ignore rather than zero out results
+
+      filtered = filtered.filter((row) => {
+        const cleanParamName = cleanName.replace(/^S\d+_/i, "");
+        let cellVal = row[cleanParamName];
+        if (cellVal === undefined) {
+          // Case/underscore-insensitive key matching
+          const normParam = cleanParamName.toLowerCase().replace(/[^a-z0-9]/g, "");
+          const foundKey = Object.keys(row).find(
+            (k) => k.toLowerCase().replace(/[^a-z0-9]/g, "") === normParam
+          );
+          if (foundKey) {
+            cellVal = row[foundKey];
+          }
+        }
+
+        if (cellVal == null) return false;
+        const cellStr = String(cellVal).trim();
+        const cellLower = cellStr.toLowerCase();
+
+        if (!op) return valList.some(v => cellLower.includes(v) || v.includes(cellLower)); // legacy substring
+        switch (op) {
+          case "like": return valList.some(v => cellLower.includes(v));
+          case "eq":
+          case "in": return valList.includes(cellLower);
+          case "gte": return this.compareCells(cellStr, valList[0]) >= 0;
+          case "lte": return this.compareCells(cellStr, valList[0]) <= 0;
+          case "between": return this.compareCells(cellStr, valList[0]) >= 0 && this.compareCells(cellStr, valList[1]) <= 0;
+          default: return valList.some(v => cellLower.includes(v) || v.includes(cellLower));
+        }
+      });
+    }
+    return filtered;
   }
 
   async ensureTableExists(): Promise<void> {
@@ -498,16 +570,23 @@ export class EndpointService {
     // so API callers can override template defaults without creating duplicate AND clauses
     const rootMeta = getTableMeta(config.rootTable);
     const overriddenColumns = new Set<string>();
+    // Columns that already received an explicit `__op` param — a second one on the
+    // same column (e.g. `?d__gte=..&d__lte=..`) must AND, not overwrite.
+    const explicitOpColumns = new Set<string>();
 
     if (hasNonEmptyQueryParams) {
       for (const [paramName, paramValue] of Object.entries(queryParams)) {
         if (!paramValue || paramValue.trim() === "") continue;
 
+        // `__op` suffix (e.g. create_dt__gte) sets the operator explicitly;
+        // bare key keeps the Template operator (legacy behavior)
+        const { cleanName: cleanBase, op } = this.parseParamOperator(paramName);
+
         // Strip S1_ prefix if present (root step is always 0)
-        const cleanParam = paramName.replace(/^S1_/i, "");
+        const cleanParam = cleanBase.replace(/^S1_/i, "");
 
         // Find matching root condition by column (case-insensitive, supports camelCase/dbColumn/label)
-        const matchedCond = rootConditions.find(c => {
+        let matchedCond = rootConditions.find(c => {
           if (!rootMeta) return c.column.toLowerCase() === cleanParam.toLowerCase();
           const colMeta = rootMeta.columns[c.column];
           if (!colMeta) return c.column.toLowerCase() === cleanParam.toLowerCase();
@@ -519,7 +598,35 @@ export class EndpointService {
         if (matchedCond) {
           // Override value/values based on param format (multi-line/comma = IN, single = eq/like)
           const hasMultiple = paramValue.includes("\n") || paramValue.includes(",");
-          if (hasMultiple) {
+          const colLower = matchedCond.column.toLowerCase();
+
+          // 2nd explicit `__op` on the same column → append an AND condition
+          // instead of overwriting the 1st (makes `?d__gte=..&d__lte=..` a range)
+          if (op && explicitOpColumns.has(colLower)) {
+            const extra: SearchCondition = { column: matchedCond.column, operator: "eq", value: "" };
+            rootConditions.push(extra);
+            matchedCond = extra;
+          }
+          if (op) explicitOpColumns.add(colLower);
+
+          if (op === "between") {
+            const parts = paramValue.split(/[\n,]+/).map(v => v.trim()).filter(Boolean);
+            if (parts.length !== 2) {
+              throw new Error(`Parameter "${paramName}": __between requires exactly 2 comma-separated values (from,to).`);
+            }
+            matchedCond.operator = "between";
+            matchedCond.value = parts[0];
+            matchedCond.value2 = parts[1];
+            matchedCond.values = undefined;
+          } else if (op === "in") {
+            matchedCond.operator = "in";
+            matchedCond.values = paramValue.split(/[\n,]+/).map(v => v.trim()).filter(Boolean);
+            matchedCond.value = "";
+          } else if (op) {
+            matchedCond.operator = op as SearchCondition["operator"];
+            matchedCond.value = paramValue.trim();
+            matchedCond.values = undefined;
+          } else if (hasMultiple) {
             matchedCond.operator = "in";
             matchedCond.values = paramValue.split(/[\n,]+/).map(v => v.trim()).filter(Boolean);
             matchedCond.value = "";
@@ -551,6 +658,9 @@ export class EndpointService {
       addSeed(0, c);
     });
 
+    // Step columns that already received an explicit `__op` (see explicitOpColumns)
+    const explicitOpStepCols = new Set<string>();
+
     // No-prefix param → detect step by scanning columns (root first). -1 if unknown.
     const findStepWithColumn = (cleanCol: string): number => {
       const rootMeta = getTableMeta(config.rootTable);
@@ -566,12 +676,28 @@ export class EndpointService {
       return -1;
     };
 
-    const buildSeedCond = (stepIdx: number, colKey: string, paramValue: string): SearchCondition => {
+    const buildSeedCond = (stepIdx: number, colKey: string, paramValue: string, explicitOp: string | null = null): SearchCondition => {
       const meta = getTableMeta(this.stepTable(config, stepIdx));
       const matched = meta
         ? Object.keys(meta.columns).find(k => k.toLowerCase() === colKey.toLowerCase() || meta.columns[k].dbColumn.toLowerCase() === colKey.toLowerCase())
         : undefined;
       const exactKey = matched || colKey;
+
+      // `__op` suffix → operator fixed by the caller (URL-driven, not guessed)
+      if (explicitOp === "between") {
+        const parts = paramValue.split(/[\n,]+/).map(v => v.trim()).filter(Boolean);
+        if (parts.length !== 2) {
+          throw new Error(`Parameter "${colKey}__between" requires exactly 2 comma-separated values (from,to).`);
+        }
+        return { column: exactKey, operator: "between", value: parts[0], value2: parts[1] };
+      }
+      if (explicitOp === "in") {
+        return { column: exactKey, operator: "in", value: "", values: paramValue.split(/[\n,]+/).map(v => v.trim()).filter(Boolean) };
+      }
+      if (explicitOp) {
+        return { column: exactKey, operator: explicitOp as SearchCondition["operator"], value: paramValue };
+      }
+
       const hasMultiple = paramValue.includes("\n") || paramValue.includes(",");
 
       // ponytail: exact-match patterns (SN, codes, IDs) default to "eq", not "like"
@@ -589,7 +715,8 @@ export class EndpointService {
     for (const [paramName, paramValue] of Object.entries(queryParams)) {
       if (paramValue === undefined || paramValue === "") continue;
 
-      const prefixMatch = paramName.match(/^S(\d+)_(.+)$/i);
+      const { cleanName: cleanParamKey, op: paramOp } = this.parseParamOperator(paramName);
+      const prefixMatch = cleanParamKey.match(/^S(\d+)_(.+)$/i);
       let stepIdx: number;
       let colKey: string;
 
@@ -604,7 +731,7 @@ export class EndpointService {
           throw new Error(`Parameter "${paramName}": column "${colKey}" not found on step ${stepIdx + 1} table.`);
         }
       } else {
-        colKey = paramName.replace(/^s\d+_/i, "");
+        colKey = cleanParamKey.replace(/^s\d+_/i, "");
         stepIdx = findStepWithColumn(colKey);
         if (stepIdx === -1) continue; // unknown column — skip (allowlist should have filtered)
       }
@@ -622,23 +749,34 @@ export class EndpointService {
         if (alreadyOverridden) continue; // already seeded via override loop above
       }
 
-      const cond = buildSeedCond(stepIdx, colKey, paramValue);
+      const cond = buildSeedCond(stepIdx, colKey, paramValue, paramOp);
+      const stepColKey = `${stepIdx}|${cond.column.toLowerCase()}`;
       const existing = (seedsByStep[stepIdx] || []).find(c => c.column.toLowerCase() === cond.column.toLowerCase());
       if (existing) {
-        existing.value = cond.value;
-        if (cond.values) {
-          existing.operator = "in";
-          existing.values = cond.values;
-        } else if (existing.operator === "in") {
-          existing.values = [cond.value];
+        if (paramOp && explicitOpStepCols.has(stepColKey)) {
+          // 2nd explicit `__op` on the same step column → AND (range), don't overwrite
+          addSeed(stepIdx, cond);
+        } else if (paramOp) {
+          // Explicit `__op` replaces the seed wholesale (operator + value shape)
+          Object.assign(existing, cond);
         } else {
-          // Preserve the Template operator (eq/like/gte/lte/between) when a
-          // caller replaces only its value.
-          existing.values = undefined;
+          existing.value = cond.value;
+          existing.value2 = cond.value2;
+          if (cond.values) {
+            existing.operator = "in";
+            existing.values = cond.values;
+          } else if (existing.operator === "in") {
+            existing.values = [cond.value];
+          } else {
+            // Preserve the Template operator (eq/like/gte/lte/between) when a
+            // caller replaces only its value.
+            existing.values = undefined;
+          }
         }
       } else {
         addSeed(stepIdx, cond);
       }
+      if (paramOp) explicitOpStepCols.add(stepColKey);
     }
 
     if (Object.keys(seedsByStep).length === 0) {
