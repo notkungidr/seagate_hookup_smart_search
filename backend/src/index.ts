@@ -925,8 +925,57 @@ const apiRoutes = new Elysia()
       }
 
       // 2. Process POST body params (JSON style)
-      if (body && typeof body === "object") {
-        for (const [k, v] of Object.entries(body)) {
+      // Elysia parses JSON only with Content-Type: application/json. Clients
+      // that omit the header (curl -d, some HTTP tools) send form-urlencoded,
+      // so a JSON payload arrives mangled as { "<whole json>": "" } and params
+      // used to be silently dropped — the chain then ran with saved defaults.
+      const contentType = String(headers["content-type"] || "").toLowerCase();
+      const parseJsonBody = (raw: string): unknown => {
+        try {
+          return JSON.parse(raw.replace(/^﻿/, "").trim());
+        } catch {
+          return undefined;
+        }
+      };
+      // NB: อย่าใช้ String(body) — body ที่ Elysia parse จาก form-urlencoded จะโยน
+      // TypeError "No default value" ตอนแปลงเป็น primitive (quirk ของ Bun) ใช้
+      // JSON.stringify แทน ซึ่งปลอดภัยกับทุกรูปแบบ
+      const previewOf = (b: unknown): string => {
+        try {
+          return typeof b === "string" ? b.slice(0, 60) : (JSON.stringify(b) ?? "").slice(0, 60);
+        } catch {
+          return "(uninspectable)";
+        }
+      };
+      const bodyDetail = `Content-Type "${contentType || "(none)"}", body type ${body === null ? "null" : typeof body}${body != null ? `, starts with: ${previewOf(body)}` : ""}`;
+      let bodyParams: unknown = body;
+      if (typeof bodyParams === "string") {
+        if (bodyParams.trim()) {
+          const parsed = parseJsonBody(bodyParams);
+          if (parsed === undefined) {
+            set.status = 400;
+            console.error(`[TRACE] POST body not parseable: ${bodyDetail}`);
+            return { success: false, message: `POST body must be valid JSON — got ${bodyDetail}. Send header "Content-Type: application/json".` };
+          }
+          bodyParams = parsed;
+        } else {
+          bodyParams = undefined;
+        }
+      } else if (bodyParams && typeof bodyParams === "object" && contentType && !contentType.includes("application/json")) {
+        const rawEntries = Object.entries(bodyParams as Record<string, unknown>);
+        const raw = Object.keys(bodyParams as Record<string, unknown>).join("&");
+        const parsed = parseJsonBody(raw);
+        if (parsed && typeof parsed === "object" && rawEntries.some(([, v]) => v === "" || v == null)) {
+          bodyParams = parsed; // JSON payload mangled into form keys — recover it
+        } else if (rawEntries.length && rawEntries.every(([, v]) => v === "" || v == null)) {
+          set.status = 400;
+          console.error(`[TRACE] POST body not parseable (form-mangled): ${bodyDetail}`);
+          return { success: false, message: `POST body must be valid JSON — got ${bodyDetail}. Send header "Content-Type: application/json".` };
+        }
+        // else: real form-encoded params — keep entries as key/value params
+      }
+      if (bodyParams && typeof bodyParams === "object") {
+        for (const [k, v] of Object.entries(bodyParams as Record<string, unknown>)) {
           if (v !== undefined && v !== null && v !== "") {
             if (Array.isArray(v)) {
               mergedParams[k] = v.join("\n");
@@ -988,6 +1037,7 @@ const apiRoutes = new Elysia()
 
       return { success: true, id: params.id, name: ep.name, count: filteredRows.length, data: filteredRows };
     } catch (err: any) {
+      console.error("[TRACE] POST error:", err?.stack || err);
       set.status = 400;
       return { success: false, message: err.message };
     }

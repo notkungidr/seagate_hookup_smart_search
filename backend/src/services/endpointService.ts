@@ -846,6 +846,29 @@ export class EndpointService {
       }
     }
 
+    // ── 3.5 Close seeded-but-unconnected steps ─────────────────────────────────
+    // A step seeded directly by its own param (e.g. ?S4_AREA_CODE=FFHC) resolves
+    // from its bare WHERE — BFS skips edges whose both endpoints are already
+    // resolved, so the hop (FORM_ID IN parent's values) never constrains it and
+    // it returns every row matching the param across all history. Re-filter each
+    // fully-resolved edge so every step stays connected to the chain. (Rows that
+    // arrived via pivot on this same edge already satisfy it — filter is a no-op.)
+    for (const { parentIdx, childIdx, hop } of edges) {
+      if (!resolved.has(parentIdx) || !resolved.has(childIdx)) continue;
+      const parentValues = new Set(
+        pivotService.extractValues(
+          stepRows[parentIdx] || [],
+          this.resolveColumnLabel(this.stepTable(config, parentIdx), hop.fromColumnKey)
+        )
+      );
+      const childLabel = this.resolveColumnLabel(this.stepTable(config, childIdx), hop.targetColumn);
+      stepRows[childIdx] = (stepRows[childIdx] || []).filter((r) => {
+        const v = r[childLabel];
+        if (v === undefined || v === null || String(v).trim() === "") return false;
+        return parentValues.has(String(v).trim());
+      });
+    }
+
     // ── 4. Assemble dense steps[] by index ─────────────────────────────────────
     const steps: { table: string; label: string; rows: Record<string, any>[]; availablePivots?: any[] }[] = [];
     for (let i = 0; i < totalSteps; i++) {
