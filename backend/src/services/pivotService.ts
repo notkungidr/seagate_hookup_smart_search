@@ -1,6 +1,6 @@
 import { db, dbBitintra, getDb, getRawPool } from "../db/client";
 import { sql } from "drizzle-orm";
-import { getTableMeta, TABLE_REGISTRY, getDynamicRegistry, TableMeta, buildSelectClause, mapRowToLabels, quoteTableRef } from "../config/tableRegistry";
+import { getTableMeta, TABLE_REGISTRY, getDynamicRegistry, TableMeta, buildSelectClause, mapRowToLabels, quoteTableRef, quoteColumnRef } from "../config/tableRegistry";
 
 import { BATCH_SIZE } from "../config/appConfig";
 
@@ -128,7 +128,7 @@ export class PivotService {
       const placeholderChunks = batch.map(v => sql`${v}`);
       const joinedPlaceholders = sql.join(placeholderChunks, sql`, `);
 
-      const query = sql`SELECT ${sql.raw(selectClause)} FROM ${sql.raw(quoteTableRef(dbTable))} WHERE ${sql.identifier(dbCol)} IN (${joinedPlaceholders})`;
+      const query = sql`SELECT ${sql.raw(selectClause)} FROM ${sql.raw(quoteTableRef(dbTable))} WHERE ${sql.raw(quoteColumnRef(dbCol))} IN (${joinedPlaceholders})`;
 
       // Get compiled query for debugging
       const compiled = queryDb.dialect.sqlToQuery(query);

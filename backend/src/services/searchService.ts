@@ -1,6 +1,6 @@
 import { db, dbACA, dbBitintra, getDb, getRawPool } from "../db/client";
 import { sql } from "drizzle-orm";
-import { getTableMeta, TABLE_REGISTRY, TableMeta, buildSelectClause, mapRowToLabels, quoteTableRef } from "../config/tableRegistry";
+import { getTableMeta, TABLE_REGISTRY, TableMeta, buildSelectClause, mapRowToLabels, quoteTableRef, quoteColumnRef } from "../config/tableRegistry";
 
 import { BATCH_SIZE } from "../config/appConfig";
 
@@ -139,7 +139,7 @@ export class SearchService {
         // 1. เพิ่ม IN clause สำหรับเงื่อนไข IN หลัก
         const chunks = batch.map(v => sql`${v}`);
         const joined = sql.join(chunks, sql`, `);
-        fragments.push(sql`${sql.identifier(dbColIn)} IN (${joined})`);
+        fragments.push(sql`${sql.raw(quoteColumnRef(dbColIn))} IN (${joined})`);
 
         // 2. เพิ่มเงื่อนไขอื่นๆ เข้ามาร่วมด้วย (LIKE, EQ หรือ IN อื่นๆ)
         for (const cond of conditionsList) {
@@ -148,15 +148,15 @@ export class SearchService {
           const dbCol = colMeta.dbColumn;
 
           if (cond.operator === "like" && cond.value) {
-            fragments.push(sql`${sql.identifier(dbCol)} LIKE ${`%${cond.value}%`}`);
+            fragments.push(sql`${sql.raw(quoteColumnRef(dbCol))} LIKE ${`%${cond.value}%`}`);
           } else if (cond.operator === "eq" && cond.value) {
-            fragments.push(sql`${sql.identifier(dbCol)} = ${cond.value}`);
+            fragments.push(sql`${sql.raw(quoteColumnRef(dbCol))} = ${cond.value}`);
           } else if (cond.operator === "gte" && cond.value) {
-            fragments.push(sql`${sql.identifier(dbCol)} >= ${cond.value}`);
+            fragments.push(sql`${sql.raw(quoteColumnRef(dbCol))} >= ${cond.value}`);
           } else if (cond.operator === "lte" && cond.value) {
-            fragments.push(sql`${sql.identifier(dbCol)} <= ${cond.value}`);
+            fragments.push(sql`${sql.raw(quoteColumnRef(dbCol))} <= ${cond.value}`);
           } else if (cond.operator === "between" && cond.value && cond.value2) {
-            fragments.push(sql`${sql.identifier(dbCol)} BETWEEN ${cond.value} AND ${cond.value2}`);
+            fragments.push(sql`${sql.raw(quoteColumnRef(dbCol))} BETWEEN ${cond.value} AND ${cond.value2}`);
           } else if (cond.operator === "in") {
             const otherRaw = cond.values && cond.values.length > 0
               ? cond.values
@@ -165,7 +165,7 @@ export class SearchService {
             if (otherUnique.length > 0) {
               const otherChunks = otherUnique.map(v => sql`${v}`);
               const otherJoined = sql.join(otherChunks, sql`, `);
-              fragments.push(sql`${sql.identifier(dbCol)} IN (${otherJoined})`);
+              fragments.push(sql`${sql.raw(quoteColumnRef(dbCol))} IN (${otherJoined})`);
             }
           }
         }
@@ -200,15 +200,15 @@ export class SearchService {
         const dbCol = colMeta.dbColumn;
 
         if (cond.operator === "like" && cond.value) {
-          fragments.push(sql`${sql.identifier(dbCol)} LIKE ${`%${cond.value}%`}`);
+          fragments.push(sql`${sql.raw(quoteColumnRef(dbCol))} LIKE ${`%${cond.value}%`}`);
         } else if (cond.operator === "eq" && cond.value) {
-          fragments.push(sql`${sql.identifier(dbCol)} = ${cond.value}`);
+          fragments.push(sql`${sql.raw(quoteColumnRef(dbCol))} = ${cond.value}`);
         } else if (cond.operator === "gte" && cond.value) {
-          fragments.push(sql`${sql.identifier(dbCol)} >= ${cond.value}`);
+          fragments.push(sql`${sql.raw(quoteColumnRef(dbCol))} >= ${cond.value}`);
         } else if (cond.operator === "lte" && cond.value) {
-          fragments.push(sql`${sql.identifier(dbCol)} <= ${cond.value}`);
+          fragments.push(sql`${sql.raw(quoteColumnRef(dbCol))} <= ${cond.value}`);
         } else if (cond.operator === "between" && cond.value && cond.value2) {
-          fragments.push(sql`${sql.identifier(dbCol)} BETWEEN ${cond.value} AND ${cond.value2}`);
+          fragments.push(sql`${sql.raw(quoteColumnRef(dbCol))} BETWEEN ${cond.value} AND ${cond.value2}`);
         }
       }
 
@@ -565,15 +565,15 @@ export class SearchService {
         if (!dbCol) continue;
 
         if (cond.operator === "like" && cond.value) {
-          fragments.push(sql`${sql.identifier(dbCol)} LIKE ${`%${cond.value}%`}`);
+          fragments.push(sql`${sql.raw(quoteColumnRef(dbCol))} LIKE ${`%${cond.value}%`}`);
         } else if (cond.operator === "eq" && cond.value) {
-          fragments.push(sql`${sql.identifier(dbCol)} = ${cond.value}`);
+          fragments.push(sql`${sql.raw(quoteColumnRef(dbCol))} = ${cond.value}`);
         } else if (cond.operator === "gte" && cond.value) {
-          fragments.push(sql`${sql.identifier(dbCol)} >= ${cond.value}`);
+          fragments.push(sql`${sql.raw(quoteColumnRef(dbCol))} >= ${cond.value}`);
         } else if (cond.operator === "lte" && cond.value) {
-          fragments.push(sql`${sql.identifier(dbCol)} <= ${cond.value}`);
+          fragments.push(sql`${sql.raw(quoteColumnRef(dbCol))} <= ${cond.value}`);
         } else if (cond.operator === "between" && cond.value && cond.value2) {
-          fragments.push(sql`${sql.identifier(dbCol)} BETWEEN ${cond.value} AND ${cond.value2}`);
+          fragments.push(sql`${sql.raw(quoteColumnRef(dbCol))} BETWEEN ${cond.value} AND ${cond.value2}`);
         } else if (cond.operator === "in") {
           const rawVals = cond.values && cond.values.length > 0
             ? cond.values
@@ -582,7 +582,7 @@ export class SearchService {
           if (unique.length > 0) {
             const chunks = unique.map(v => sql`${v}`);
             const joined = sql.join(chunks, sql`, `);
-            fragments.push(sql`${sql.identifier(dbCol)} IN (${joined})`);
+            fragments.push(sql`${sql.raw(quoteColumnRef(dbCol))} IN (${joined})`);
           }
         }
       }
@@ -916,7 +916,7 @@ export class SearchService {
     // Handle virtual ACA Bonding tables
     else if (table === "ACA_BONDING_DATA" || table === "ACA_BONDING_DATA_2") {
       const bitTable = table === "ACA_BONDING_DATA" ? "BIT.ACA_BONDING_DATA" : "BIT.ACA_BONDING_DATA_2";
-      checkQuery = sql`SELECT DISTINCT ${sql.identifier(dbCol)} AS val FROM ${sql.raw(bitTable)} WHERE customer = 'Seagate:ACA' AND ${sql.identifier(dbCol)} IS NOT NULL AND ${sql.identifier(dbCol)} != '' LIMIT 1001`;
+      checkQuery = sql`SELECT DISTINCT ${sql.raw(quoteColumnRef(dbCol))} AS val FROM ${sql.raw(bitTable)} WHERE customer = 'Seagate:ACA' AND ${sql.raw(quoteColumnRef(dbCol))} IS NOT NULL AND ${sql.raw(quoteColumnRef(dbCol))} != '' LIMIT 1001`;
       checkRes = await dbBitintra.execute(checkQuery) as any;
     }
     // Handle tl_info virtual join table
@@ -926,7 +926,7 @@ export class SearchService {
         const pcCol = dbCol === "pc_detail" ? "detail" : dbCol === "pc_model" ? "model" : "product_code";
         checkQuery = sql`SELECT DISTINCT ${sql.identifier(pcCol)} AS val FROM pc WHERE ${sql.identifier(pcCol)} IS NOT NULL AND ${sql.identifier(pcCol)} != '' LIMIT 1001`;
       } else {
-        checkQuery = sql`SELECT DISTINCT ${sql.identifier(dbCol)} AS val FROM tl WHERE ${sql.identifier(dbCol)} IS NOT NULL AND ${sql.identifier(dbCol)} != '' LIMIT 1001`;
+        checkQuery = sql`SELECT DISTINCT ${sql.raw(quoteColumnRef(dbCol))} AS val FROM tl WHERE ${sql.raw(quoteColumnRef(dbCol))} IS NOT NULL AND ${sql.raw(quoteColumnRef(dbCol))} != '' LIMIT 1001`;
       }
       checkRes = await db.execute(checkQuery) as any;
     }
@@ -960,7 +960,7 @@ export class SearchService {
         const [rows] = await rawPool.execute(distinctSql) as any[];
         checkRes = rows;
       } else {
-        checkQuery = sql`SELECT DISTINCT ${sql.identifier(dbCol)} AS val FROM ${sql.raw(quoteTableRef(dbTable))} WHERE ${sql.identifier(dbCol)} IS NOT NULL AND ${sql.identifier(dbCol)} != '' LIMIT 1001`;
+        checkQuery = sql`SELECT DISTINCT ${sql.raw(quoteColumnRef(dbCol))} AS val FROM ${sql.raw(quoteTableRef(dbTable))} WHERE ${sql.raw(quoteColumnRef(dbCol))} IS NOT NULL AND ${sql.raw(quoteColumnRef(dbCol))} != '' LIMIT 1001`;
         checkRes = await queryDb.execute(checkQuery) as any;
       }
     }

@@ -678,6 +678,13 @@ export function quoteTableRef(name: string): string {
     .join(".");
 }
 
+// HELPER: เช่นเดียวกับ quoteTableRef แต่สำหรับชื่อคอลัมน์ — รองรับ "col" และ
+// "alias.col" (dbColumn แบบ dot-notation สำหรับตารางที่ประกอบจาก JOIN หลายตาราง
+// ซึ่งมีชื่อฟิลด์ซ้ำกัน เช่น pd.pt_no) — ป้องกัน "Column 'x' is ambiguous"
+export function quoteColumnRef(name: string): string {
+  return quoteTableRef(name);
+}
+
 // ============================================================
 // HELPER: แปลงคีย์ของ Row ในผลลัพธ์เป็น Label ที่กำหนดไว้
 // ============================================================
