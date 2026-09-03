@@ -207,6 +207,7 @@ const apiRoutes = new Elysia()
       try {
         const result = await searchService.search({
           table: body.table,
+          targetServer: body.targetServer,
           column: body.column,
           value: body.value ?? "",
           values: body.values,
@@ -223,6 +224,7 @@ const apiRoutes = new Elysia()
     {
       body: t.Object({
         table: t.String({ minLength: 1 }),
+        targetServer: t.Optional(t.String({ minLength: 1 })),
         column: t.Optional(t.String()),
         value: t.Optional(t.String()),
         values: t.Optional(t.Array(t.String())),
@@ -265,6 +267,7 @@ const apiRoutes = new Elysia()
         const result = await pivotService.pivot({
           sourceValues: body.sourceValues,
           targetTable: body.targetTable,
+          targetServer: body.targetServer,
           targetColumn: body.targetColumn,
           limit: body.limit ?? 1000000,
         });
@@ -278,6 +281,7 @@ const apiRoutes = new Elysia()
       body: t.Object({
         sourceValues: t.Array(t.String(), { minItems: 1 }),
         targetTable: t.String({ minLength: 1 }),
+        targetServer: t.Optional(t.String({ minLength: 1 })),
         targetColumn: t.String({ minLength: 1 }),
         limit: t.Optional(t.Number({ minimum: 1, maximum: 10000000 })),
       }),

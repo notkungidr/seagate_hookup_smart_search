@@ -651,6 +651,36 @@ export function getTableMeta(tableName: string): TableMeta | null {
   return _dynamicRegistry[tableName] ?? TABLE_REGISTRY[tableName] ?? null;
 }
 
+/**
+ * Resolve a table when the same physical table name is registered on more
+ * than one connection. A server-qualified lookup must win over the legacy
+ * table-name-only lookup, whose result depends on registry row order.
+ */
+export function getTableMetaForConnection(tableName: string, connectionKey?: string): TableMeta | null {
+  const all = { ...TABLE_REGISTRY, ..._dynamicRegistry };
+  // A qualified table reference is authoritative even when an old registry
+  // row still carries a stale host-like connection id.
+  const requestedName = tableName.toLowerCase();
+  const qualifiedPrefix = tableName.includes(".") ? tableName.split(".")[0].trim().toLowerCase() : "";
+  if (qualifiedPrefix === "aca" || qualifiedPrefix === "seagate") {
+    const qualified = Object.values(all).find((meta) =>
+      (meta.tableName.toLowerCase() === requestedName || meta.dbTable?.toLowerCase() === requestedName) &&
+      (meta.database?.toLowerCase() === qualifiedPrefix || meta.connectionKey?.toLowerCase() === qualifiedPrefix)
+    );
+    if (qualified) return qualified;
+  }
+  if (connectionKey) {
+    const match = Object.values(all).find((meta) =>
+      (meta.tableName.toLowerCase() === tableName.toLowerCase() ||
+       (meta.dbTable?.toLowerCase() === tableName.toLowerCase())) &&
+      (meta.connectionKey?.toLowerCase() === connectionKey.toLowerCase() ||
+       meta.database?.toLowerCase() === connectionKey.toLowerCase())
+    );
+    if (match) return match;
+  }
+  return getTableMeta(tableName);
+}
+
 // ============================================================
 // HELPER: แทน SELECT * ด้วย SELECT dbCol AS 'label'
 // ============================================================
@@ -735,7 +765,19 @@ export function mapRowToLabels(row: any, tableMeta: TableMeta): any {
 export function getTablesSummary() {
   // Return only dynamic tables from registry_tables
   // Static TABLE_REGISTRY is no longer exposed to frontend
-  const dynamicEntries = Object.entries(_dynamicRegistry).map(([key, meta]) => ({
+  // `_dynamicRegistry` also contains internal qualified aliases such as
+  // `PACK_DATA_SERIAL_BITR` used to resolve duplicate table names by server.
+  // Do not expose those aliases as separate UI options.
+  const seen = new Set<string>();
+  const dynamicEntries = Object.entries(_dynamicRegistry)
+    .filter(([key, meta]) => key === meta.tableName)
+    .filter(([, meta]) => {
+      const identity = `${meta.tableName.toLowerCase()}|${(meta.connectionKey ?? meta.database ?? "seagate").toLowerCase()}`;
+      if (seen.has(identity)) return false;
+      seen.add(identity);
+      return true;
+    })
+    .map(([key, meta]) => ({
     key,
     tableName: meta.tableName,
     dbTable: meta.dbTable ?? meta.tableName,
@@ -751,7 +793,7 @@ export function getTablesSummary() {
       dataType: col.dataType,
       linksTo: col.linksTo ?? [],
     })),
-  }));
+    }));
 
   return dynamicEntries;
 }

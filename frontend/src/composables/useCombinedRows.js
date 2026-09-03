@@ -22,6 +22,10 @@ export function useCombinedRows({
   const debouncedCombinedFilter = ref('');
   const combinedColFilters = ref({});
 
+  // ponytail: hard cap — multi-million row fan-out OOMs the tab ("this page is having a problem"); export caps at 50k anyway
+  const MAX_COMBINED_ROWS = 200000;
+  const combinedTruncated = ref(false);
+
   let combinedFilterTimer = null;
   watch(combinedFilterText, (value) => {
     clearTimeout(combinedFilterTimer);
@@ -160,6 +164,7 @@ export function useCombinedRows({
   }
 
   function buildCombinedRows() {
+    combinedTruncated.value = false;
     if (!chainSteps.value.length) return { rows: [], colSteps: {}, colOrigins: {} };
 
     const steps = chainSteps.value
@@ -304,13 +309,16 @@ export function useCombinedRows({
 
       // ponytail: fan-out join — when incoming step has multiple rows per key, expand outputRows
       const expandedRows = [];
+      let overflow = false;
       outputRows.forEach((outRow) => {
+        if (overflow) return;
         const key = String(outRow[outputJoinCol] ?? '').trim();
         const matches = key ? lookup.get(key) : undefined;
 
         if (matches && matches.length > 0) {
           // Fan-out: create one output row per match
           matches.forEach((match) => {
+            if (expandedRows.length >= MAX_COMBINED_ROWS) { overflow = true; return; }
             const newRow = { ...outRow }; // clone current row
             newRow[statusCol] = 'MATCH';
             rowColumns.forEach((col) => {
@@ -327,9 +335,19 @@ export function useCombinedRows({
           expandedRows.push(outRow);
         }
       });
+      if (overflow) {
+        // Keep the capped rows (data up to here is fully joined), mark the rest
+        combinedTruncated.value = true;
+        outputRows.slice(expandedRows.length).forEach((outRow) => {
+          outRow[statusCol] = 'TRUNCATED';
+          expandedRows.push(outRow);
+        });
+      }
 
       // Replace outputRows with expanded version
-      outputRows.splice(0, outputRows.length, ...expandedRows);
+      // ponytail: loop push — spread into splice() dies on >~65k args (Maximum call stack)
+      outputRows.length = 0;
+      expandedRows.forEach((r) => outputRows.push(r));
     }
 
     return {
@@ -394,6 +412,7 @@ export function useCombinedRows({
     combinedColOrigins,
     filteredCombinedData,
     paginatedCombinedData,
+    combinedTruncated,
     hasActiveCombinedFilters,
     buildCombinedRows,
     getCombinedRows,

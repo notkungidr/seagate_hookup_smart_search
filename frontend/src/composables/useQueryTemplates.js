@@ -150,6 +150,7 @@ export function useQueryTemplates(apiBase) {
       name: (input.name || '').trim() || 'Untitled Template',
       description: (input.description || '').trim(),
       rootTable: input.rootTable,
+      rootServer: input.rootServer,
       rootColumn: input.rootColumn,
       rootOperator: input.rootOperator || 'like',
       rootConditions: sanitizeConditions(input.rootConditions),
@@ -158,6 +159,7 @@ export function useQueryTemplates(apiBase) {
         fromStepIdx: h.fromStepIdx,
         targetTable: h.targetTable,
         targetColumn: h.targetColumn,
+        targetServer: h.targetServer,
       })) : [],
       stepsChain: [],
       favoriteColumns: Array.isArray(input.favoriteColumns) ? input.favoriteColumns : [],
@@ -289,6 +291,7 @@ export function useQueryTemplates(apiBase) {
         fromStepIdx: parentIdx,
         targetTable: cur.targetTable || cur.table,
         targetColumn: cur._joinToColumn,
+        targetServer: findTable(tablesMeta, cur.targetTable || cur.table)?.connectionKey,
       });
     }
 
@@ -313,6 +316,7 @@ export function useQueryTemplates(apiBase) {
 
     return {
       rootTable: rootTableKey,
+      rootServer: findTable(tablesMeta, rootTableKey)?.connectionKey,
       rootColumn: firstCond.column,                                    // legacy / back-compat
       rootOperator: firstCond.operator === 'eq' ? 'eq' : 'like',         // legacy / back-compat
       rootConditions: sanitizeConditions(conds),                         // FULL multi-condition snapshot
@@ -542,7 +546,7 @@ export async function runTemplateChain({
   let rootJson;
   try {
     // ponytail: batch large IN conditions at frontend before hitting API — solves 400K payload error
-    rootJson = await runSearchBatched(apiBase, startTKey, apiConditions, onMessage);
+    rootJson = await runSearchBatched(apiBase, startTKey, apiConditions, onMessage, startTbl.connectionKey);
   } catch (err) {
     failStep(steps, startStepIdx, 'API error');
     flush();
@@ -642,7 +646,7 @@ export async function runTemplateChain({
           return { ok: false, reason: 'no-source-values', interruptedAt: tgtIdx };
         }
 
-        const pivotRes = await runPivotBatch(apiBase, sourceValues, hop.targetTable, hop.targetColumn, tgtTbl?.label);
+        const pivotRes = await runPivotBatch(apiBase, sourceValues, hop.targetTable, hop.targetColumn, tgtTbl?.label, hop.targetServer || tgtTbl?.connectionKey);
         if (!pivotRes.ok) {
           failStep(steps, tgtIdx, pivotRes.error);
           flush();
@@ -719,7 +723,7 @@ export async function runTemplateChain({
           return { ok: false, reason: 'no-source-values', interruptedAt: tgtIdx };
         }
 
-        const pivotRes = await runPivotBatch(apiBase, sourceValues, parentTableKey, hop.fromColumnKey, parentTbl?.label);
+        const pivotRes = await runPivotBatch(apiBase, sourceValues, parentTableKey, hop.fromColumnKey, parentTbl?.label, hop.targetServer || parentTbl?.connectionKey);
         if (!pivotRes.ok) {
           failStep(steps, tgtIdx, pivotRes.error);
           flush();
@@ -764,7 +768,7 @@ export async function runTemplateChain({
  * @param {function} onMessage — (level, text) => void
  * @returns {Promise<{success: boolean, data?: {...}, message?: string}>}
  */
-async function runSearchBatched(apiBase, table, conditions, onMessage) {
+async function runSearchBatched(apiBase, table, conditions, onMessage, targetServer = '') {
   const inCondIdx = conditions.findIndex(c => c.operator === 'in');
 
   // No IN condition or small IN → single request
@@ -772,7 +776,7 @@ async function runSearchBatched(apiBase, table, conditions, onMessage) {
     const res = await fetch(`${apiBase}/api/search`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ table, conditions }),
+      body: JSON.stringify({ table, targetServer: targetServer || undefined, conditions }),
     });
     return res.json();
   }
@@ -803,7 +807,7 @@ async function runSearchBatched(apiBase, table, conditions, onMessage) {
     const res = await fetch(`${apiBase}/api/search`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ table, conditions: batchConds }),
+      body: JSON.stringify({ table, targetServer: targetServer || undefined, conditions: batchConds }),
     });
     const json = await res.json();
 
@@ -835,7 +839,7 @@ async function runSearchBatched(apiBase, table, conditions, onMessage) {
  * Helper to execute a pivot query in batches to avoid MySQL 5.0 IN-clause limitations.
  * Aggregates all batch results into a single object with unified rows.
  */
-async function runPivotBatch(apiBase, sourceValues, targetTable, targetColumn, targetTableLabel = '') {
+async function runPivotBatch(apiBase, sourceValues, targetTable, targetColumn, targetTableLabel = '', targetServer = '') {
   const batches = [];
   const batchSize = PIVOT_BATCH_SIZE.value;
   for (let i = 0; i < sourceValues.length; i += batchSize) {
@@ -852,6 +856,7 @@ async function runPivotBatch(apiBase, sourceValues, targetTable, targetColumn, t
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           targetTable,
+          targetServer: targetServer || undefined,
           targetColumn,
           sourceValues: batchValues,
         }),

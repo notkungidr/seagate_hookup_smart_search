@@ -17,9 +17,12 @@ export const CONNECTION_CONFIGS = {
     database: "seagate",
   },
   ACA: {
-    host: process.env.DB_SEAGATE_HOST || "sghu-db02.th.belton.corp",
-    user: process.env.DB_SEAGATE_USER!,
-    password: process.env.DB_SEAGATE_PASSWORD!,
+    // ACA is hosted independently from Seagate. Keep separate environment
+    // variables so a Seagate host change cannot silently route ACA queries to
+    // the wrong server.
+    host: process.env.DB_ACA_HOST || "sghu-db01.th.belton.corp",
+    user: process.env.DB_ACA_USER || process.env.DB_SEAGATE_USER!,
+    password: process.env.DB_ACA_PASSWORD || process.env.DB_SEAGATE_PASSWORD!,
     database: "ACA",
   },
   Bitintra: {

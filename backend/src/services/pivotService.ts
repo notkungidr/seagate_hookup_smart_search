@@ -1,6 +1,6 @@
-import { db, dbBitintra, getDb, getRawPool } from "../db/client";
+import { db, dbBitintra, getDb, getRawPool, resolveConnConfig } from "../db/client";
 import { sql } from "drizzle-orm";
-import { getTableMeta, TABLE_REGISTRY, getDynamicRegistry, TableMeta, buildSelectClause, mapRowToLabels, quoteTableRef, quoteColumnRef } from "../config/tableRegistry";
+import { getTableMeta, getTableMetaForConnection, TABLE_REGISTRY, getDynamicRegistry, TableMeta, buildSelectClause, mapRowToLabels, quoteTableRef, quoteColumnRef } from "../config/tableRegistry";
 
 import { BATCH_SIZE } from "../config/appConfig";
 
@@ -47,7 +47,10 @@ export class PivotService {
     const { sourceValues, targetTable, targetServer, targetColumn, limit = 1000000 } = params;
 
     // 1. Validate & Lookup table meta (with targetServer if provided)
-    let tableMeta = getTableMeta(targetTable);
+    // Resolve by targetServer first because dynamic registry can contain the
+    // same table name on multiple connections (e.g. PACK_DATA_SERIAL on ACA
+    // and BITR). Falling back to name-only keeps legacy callers working.
+    let tableMeta = getTableMetaForConnection(targetTable, targetServer);
 
     // If targetServer is specified and table not found, try composite key lookup
     if (!tableMeta && targetServer) {
@@ -489,7 +492,8 @@ export class PivotService {
       const rawSql = `SELECT * FROM ${quoteTableRef(dbTable)} WHERE ${escapedCol} IN (${placeholders})`;
 
       console.log(`\n\x1b[36m╔══════════ [SQL Debug - RawPool Pivot (${connKey}) Batch ${Math.floor(i / BATCH_SIZE) + 1}] ══════════\x1b[0m`);
-       console.log(`\x1b[36m║\x1b[0m \x1b[1mConnection :\x1b[0m ${connKey}`);
+      console.log(`\x1b[36m║\x1b[0m \x1b[1mConnection :\x1b[0m ${connKey}`);
+      console.log(`\x1b[36m║\x1b[0m \x1b[1mHost:\x1b[0m       ${resolveConnConfig(connKey)?.host ?? "(unknown)"}`);
       console.log(`\x1b[36m║\x1b[0m \x1b[1mDatabase:\x1b[0m ${connKey}`);
       console.log(`\x1b[36m║\x1b[0m \x1b[1mTable:\x1b[0m    ${dbTable}`);
       console.log(`\x1b[36m║\x1b[0m \x1b[1mSQL:\x1b[0m    \x1b[33m${rawSql}\x1b[0m`);

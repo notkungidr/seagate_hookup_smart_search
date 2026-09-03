@@ -1,6 +1,6 @@
-import { db, dbACA, dbBitintra, getDb, getRawPool } from "../db/client";
+import { db, dbACA, dbBitintra, getDb, getRawPool, resolveConnConfig } from "../db/client";
 import { sql } from "drizzle-orm";
-import { getTableMeta, TABLE_REGISTRY, TableMeta, buildSelectClause, mapRowToLabels, quoteTableRef, quoteColumnRef } from "../config/tableRegistry";
+import { getTableMeta, getTableMetaForConnection, TABLE_REGISTRY, TableMeta, buildSelectClause, mapRowToLabels, quoteTableRef, quoteColumnRef } from "../config/tableRegistry";
 
 import { BATCH_SIZE } from "../config/appConfig";
 
@@ -22,6 +22,8 @@ export interface SearchCondition {
 
 export interface SearchParams {
   table: string;
+  /** Optional connection qualifier for duplicate table names. */
+  targetServer?: string;
   column?: string;      // key ใน TABLE_REGISTRY (camelCase) (optional for legacy)
   value?: string;       // สำหรับ like/eq (optional for legacy)
   value2?: string;      // (optional for legacy)
@@ -56,7 +58,7 @@ export class SearchService {
   async search(params: SearchParams): Promise<SearchResult> {
     const { table, column, value, values, operator = "like", limit = 1000000, conditions } = params;
 
-    const tableMeta = getTableMeta(table);
+    const tableMeta = getTableMetaForConnection(table, params.targetServer);
     if (!tableMeta) throw new Error(`Table "${table}" not found in registry`);
 
     // 1. Normalize to conditions list first so all paths benefit from validation & normalization
@@ -1069,6 +1071,7 @@ export class SearchService {
 
         console.log(`\n\x1b[36m╔══════════ [SQL Debug - RawPool Search (${connKey}) Batch ${Math.floor(i / BATCH_SIZE) + 1}] ══════════\x1b[0m`);
         console.log(`\x1b[36m║\x1b[0m \x1b[1mDatabase:\x1b[0m ${connKey}`);
+        console.log(`\x1b[36m║\x1b[0m \x1b[1mHost:\x1b[0m     ${resolveConnConfig(connKey)?.host ?? "(unknown)"}`);
         console.log(`\x1b[36m║\x1b[0m \x1b[1mTable:\x1b[0m    ${dbTable}`);
         console.log(`\x1b[36m║\x1b[0m \x1b[1mSQL:\x1b[0m    \x1b[33m${rawSql}\x1b[0m`);
         console.log(`\x1b[36m║\x1b[0m \x1b[1mParams:\x1b[0m \x1b[33m${formatParams(sqlParams)}\x1b[0m`);
@@ -1114,6 +1117,7 @@ export class SearchService {
 
       console.log(`\n\x1b[36m╔══════════ [SQL Debug - RawPool Search (${connKey})] ══════════\x1b[0m`);
       console.log(`\x1b[36m║\x1b[0m \x1b[1mDatabase:\x1b[0m ${connKey}`);
+      console.log(`\x1b[36m║\x1b[0m \x1b[1mHost:\x1b[0m     ${resolveConnConfig(connKey)?.host ?? "(unknown)"}`);
       console.log(`\x1b[36m║\x1b[0m \x1b[1mTable:\x1b[0m    ${dbTable}`);
       console.log(`\x1b[36m║\x1b[0m \x1b[1mSQL:\x1b[0m    \x1b[33m${rawSql}\x1b[0m`);
       console.log(`\x1b[36m║\x1b[0m \x1b[1mParams:\x1b[0m \x1b[33m${formatParams(sqlParams)}\x1b[0m`);

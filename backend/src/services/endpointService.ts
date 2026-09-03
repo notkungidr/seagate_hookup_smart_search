@@ -3,7 +3,7 @@ import { savedEndpoints } from "../db/schema";
 import { eq, sql } from "drizzle-orm";
 import { SearchService, SearchCondition } from "./searchService";
 import { PivotService } from "./pivotService";
-import { getTableMeta } from "../config/tableRegistry";
+import { getTableMeta, getTableMetaForConnection } from "../config/tableRegistry";
 
 const searchService = new SearchService();
 const pivotService = new PivotService();
@@ -12,6 +12,7 @@ export interface EndpointConfig {
   /** Template that this public API was cloned from. Required for new endpoints. */
   sourceTemplateId?: string;
   rootTable: string;
+  rootServer?: string;
   rootColumn: string;
   rootOperator?: string;
   rootConditions?: SearchCondition[];
@@ -19,6 +20,7 @@ export interface EndpointConfig {
     fromColumnKey: string;
     targetTable: string;
     targetColumn: string;
+    targetServer?: string;
     /** Canonical template field: 0-based source step index. */
     fromStepIdx?: number;
     /** Legacy endpoint field. Read-only compatibility for endpoints saved before template parity. */
@@ -43,8 +45,8 @@ export interface SavedEndpoint {
 
 export class EndpointService {
   /** Resolve a registry key/dbColumn/label to the canonical registry column key. */
-  private resolveColumnKey(tableKey: string, column: string, context: string): string {
-    const meta = getTableMeta(tableKey);
+  private resolveColumnKey(tableKey: string, column: string, context: string, connectionKey?: string): string {
+    const meta = getTableMetaForConnection(tableKey, connectionKey);
     if (!meta) {
       throw new Error(`${context}: table "${tableKey}" not found in registry.`);
     }
@@ -66,18 +68,19 @@ export class EndpointService {
   }
 
   /** Mirror useQueryTemplates.buildApiCondition for backend/API execution. */
-  private normalizeTemplateCondition(tableKey: string, condition: any, idx: number): SearchCondition {
+  private normalizeTemplateCondition(tableKey: string, condition: any, idx: number, connectionKey?: string): SearchCondition {
     const column = this.resolveColumnKey(
       tableKey,
       String(condition?.column || "").replace(/^S1_/i, ""),
-      `Endpoint root condition ${idx + 1}`
+      `Endpoint root condition ${idx + 1}`,
+      connectionKey
     );
     const operator = String(condition?.operator || "like") as SearchCondition["operator"];
     if (!["like", "eq", "in", "between", "gte", "lte"].includes(operator)) {
       throw new Error(`Endpoint root condition ${idx + 1}: unsupported operator "${operator}".`);
     }
 
-    const meta = getTableMeta(tableKey)!;
+    const meta = getTableMetaForConnection(tableKey, connectionKey)!;
     const colMeta = meta.columns[column];
     const isDate = colMeta.label.toLowerCase().includes("date") || column.toLowerCase().includes("date");
 
@@ -114,12 +117,13 @@ export class EndpointService {
   normalizeConfig(input: EndpointConfig): EndpointConfig {
     if (!input || !input.rootTable) throw new Error("Endpoint config is missing rootTable.");
     if (!Array.isArray(input.hops)) throw new Error("Endpoint config is missing hops[].");
-    if (!getTableMeta(input.rootTable)) {
+    if (!getTableMetaForConnection(input.rootTable, input.rootServer)) {
       throw new Error(`Endpoint root table "${input.rootTable}" not found in registry.`);
     }
 
     const normalizedHops: EndpointConfig["hops"] = [];
     const stepTables: string[] = [input.rootTable];
+    const stepServers: (string | undefined)[] = [input.rootServer];
     input.hops.forEach((hop, hopIdx) => {
       const childStepIdx = hopIdx + 1;
       const fromStepIdx = this.hopSourceStep(hop, hopIdx);
@@ -136,16 +140,18 @@ export class EndpointService {
       }
 
       normalizedHops.push({
-        fromColumnKey: this.resolveColumnKey(sourceTable, hop.fromColumnKey, `Endpoint hop ${hopIdx + 1} source`),
+        fromColumnKey: this.resolveColumnKey(sourceTable, hop.fromColumnKey, `Endpoint hop ${hopIdx + 1} source`, stepServers[fromStepIdx]),
         fromStepIdx,
         targetTable: hop.targetTable,
-        targetColumn: this.resolveColumnKey(hop.targetTable, hop.targetColumn, `Endpoint hop ${hopIdx + 1} target`),
+        targetColumn: this.resolveColumnKey(hop.targetTable, hop.targetColumn, `Endpoint hop ${hopIdx + 1} target`, hop.targetServer),
+        targetServer: hop.targetServer,
       });
       stepTables.push(hop.targetTable);
+      stepServers.push(hop.targetServer);
     });
 
     const rootConditions = (input.rootConditions || []).map((condition, idx) =>
-      this.normalizeTemplateCondition(input.rootTable, condition, idx)
+      this.normalizeTemplateCondition(input.rootTable, condition, idx, input.rootServer)
     );
     const rootColumnRaw = input.rootColumn || rootConditions[0]?.column;
     if (!rootColumnRaw) throw new Error("Endpoint config is missing rootColumn/rootConditions.");
@@ -153,7 +159,8 @@ export class EndpointService {
     return {
       sourceTemplateId: input.sourceTemplateId,
       rootTable: input.rootTable,
-      rootColumn: this.resolveColumnKey(input.rootTable, rootColumnRaw, "Endpoint root"),
+      rootServer: input.rootServer,
+      rootColumn: this.resolveColumnKey(input.rootTable, rootColumnRaw, "Endpoint root", input.rootServer),
       rootOperator: input.rootOperator || rootConditions[0]?.operator || "like",
       rootConditions,
       hops: normalizedHops,
@@ -171,6 +178,7 @@ export class EndpointService {
     return this.normalizeConfig({
       sourceTemplateId: template.id,
       rootTable: template.rootTable,
+      rootServer: template.rootServer,
       rootColumn: template.rootColumn,
       rootOperator: template.rootOperator,
       rootConditions: Array.isArray(template.rootConditions)
@@ -182,6 +190,7 @@ export class EndpointService {
             fromStepIdx: hop.fromStepIdx,
             targetTable: hop.targetTable,
             targetColumn: hop.targetColumn,
+            targetServer: hop.targetServer,
           }))
         : [],
       visibleCols: Array.isArray(options.visibleCols)
@@ -793,7 +802,7 @@ export class EndpointService {
 
     for (const stepIdx of Object.keys(seedsByStep).map(Number)) {
       const table = this.stepTable(config, stepIdx);
-      const result = await searchService.search({ table, conditions: seedsByStep[stepIdx], limit: 1000000 });
+      const result = await searchService.search({ table, targetServer: this.stepServer(config, stepIdx), conditions: seedsByStep[stepIdx], limit: 1000000 });
       stepRows[stepIdx] = result.rows;
       stepInfo[stepIdx] = { table, label: result.tableLabel, availablePivots: result.availablePivots };
       resolved.add(stepIdx);
@@ -806,8 +815,8 @@ export class EndpointService {
       hop,
     }));
 
-    const resolveStep = async (fromIdx: number, fromColKey: string, toTable: string, toColKey: string, intoIdx: number) => {
-      const fromLabel = this.resolveColumnLabel(this.stepTable(config, fromIdx), fromColKey);
+    const resolveStep = async (fromIdx: number, fromColKey: string, toTable: string, toColKey: string, intoIdx: number, toServer?: string) => {
+      const fromLabel = this.resolveColumnLabel(this.stepTable(config, fromIdx), fromColKey, this.stepServer(config, fromIdx));
       const sourceValues = pivotService.extractValues(stepRows[fromIdx] || [], fromLabel);
       console.error(`[BFS] resolveStep: from step ${fromIdx} (${this.stepTable(config, fromIdx)}) col "${fromColKey}" → "${fromLabel}" → step ${intoIdx} (${toTable}), found ${sourceValues.length} values`);
       if (sourceValues.length === 0) {
@@ -816,7 +825,7 @@ export class EndpointService {
         resolved.add(intoIdx);
         return;
       }
-      const pr = await pivotService.pivot({ sourceValues, targetTable: toTable, targetColumn: toColKey, limit: 1000000 });
+      const pr = await pivotService.pivot({ sourceValues, targetTable: toTable, targetServer: toServer, targetColumn: toColKey, limit: 1000000 });
       console.error(`[BFS] pivot result: ${pr.rows.length} rows`);
       stepRows[intoIdx] = pr.rows;
       stepInfo[intoIdx] = { table: toTable, label: pr.targetTableLabel, availablePivots: pr.availablePivots };
@@ -836,10 +845,10 @@ export class EndpointService {
 
         if (pRes) {
           // Forward: parent → child
-          await resolveStep(parentIdx, hop.fromColumnKey, hop.targetTable, hop.targetColumn, childIdx);
+          await resolveStep(parentIdx, hop.fromColumnKey, hop.targetTable, hop.targetColumn, childIdx, hop.targetServer);
         } else {
           // Backward: child → parent
-          await resolveStep(childIdx, hop.targetColumn, this.stepTable(config, parentIdx), hop.fromColumnKey, parentIdx);
+          await resolveStep(childIdx, hop.targetColumn, this.stepTable(config, parentIdx), hop.fromColumnKey, parentIdx, this.stepServer(config, parentIdx));
         }
         progress = true;
         break; // restart outer loop so edges fire as soon as endpoints resolve
@@ -858,10 +867,10 @@ export class EndpointService {
       const parentValues = new Set(
         pivotService.extractValues(
           stepRows[parentIdx] || [],
-          this.resolveColumnLabel(this.stepTable(config, parentIdx), hop.fromColumnKey)
+          this.resolveColumnLabel(this.stepTable(config, parentIdx), hop.fromColumnKey, this.stepServer(config, parentIdx))
         )
       );
-      const childLabel = this.resolveColumnLabel(this.stepTable(config, childIdx), hop.targetColumn);
+      const childLabel = this.resolveColumnLabel(this.stepTable(config, childIdx), hop.targetColumn, this.stepServer(config, childIdx));
       stepRows[childIdx] = (stepRows[childIdx] || []).filter((r) => {
         const v = r[childLabel];
         if (v === undefined || v === null || String(v).trim() === "") return false;
@@ -895,9 +904,14 @@ export class EndpointService {
     return config.hops[idx - 1]?.targetTable ?? config.rootTable;
   }
 
+  private stepServer(config: EndpointConfig, idx: number): string | undefined {
+    if (idx <= 0) return config.rootServer;
+    return config.hops[idx - 1]?.targetServer;
+  }
+
   /** Resolve a column key/dbColumn/label (case-insensitive) to the row-key display label. */
-  private resolveColumnLabel(tableKey: string, colKey: string): string {
-    const meta = getTableMeta(tableKey);
+  private resolveColumnLabel(tableKey: string, colKey: string, connectionKey?: string): string {
+    const meta = getTableMetaForConnection(tableKey, connectionKey);
     if (!meta) return colKey;
     const exactKey = Object.keys(meta.columns).find(
       (k) => k.toLowerCase() === colKey.toLowerCase() ||

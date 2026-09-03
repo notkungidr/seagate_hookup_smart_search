@@ -733,6 +733,9 @@
                   All Chains Combined (Auto-Joined)
                 </span>
                 <span class="card-row-count">{{ combinedData.length.toLocaleString() }} rows</span>
+                <span v-if="combinedTruncated" style="margin-left:8px; font-size:var(--fs-xs); color:#ffd04b; font-weight:600;">
+                  ⚠️ fan-out เกิน 200,000 แถว — แสดงเฉพาะ 200,000 แถวแรก ที่เหลือ mark TRUNCATED (กรองข้อมูลหรือสลับ Master Axis เพื่อลดขนาด)
+                </span>
               </div>
 
               <!-- Axis Selector: Swapping the Left-Join pivot main axis dynamically inside combine view -->
@@ -1884,7 +1887,17 @@ async function reloadTablesSchema() {
     await fetchAppConfig(API_BASE);
     const res = await fetch(`${API_BASE}/api/tables`);
     const json = await res.json();
-    if (json.success) tablesMeta.value = json.data;
+    if (json.success) {
+      // Defensive dedupe for mixed-version backends that may return both a
+      // static and dynamic copy of the same table in the catalog.
+      const seen = new Set();
+      tablesMeta.value = (Array.isArray(json.data) ? json.data : []).filter((table) => {
+        const identity = `${String(table.label || table.tableName || table.key).trim().toLowerCase()}|${String(table.connectionKey || table.database || '').trim().toLowerCase()}`;
+        if (seen.has(identity)) return false;
+        seen.add(identity);
+        return true;
+      });
+    }
   } catch (err) {
     console.error(err);
     ElMessage.error('Cannot load table metadata. Please check backend.');
@@ -2179,7 +2192,11 @@ async function doSearch() {
     const res = await fetch(`${API_BASE}/api/search`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ table: searchForm.value.table, conditions }),
+      body: JSON.stringify({
+        table: searchForm.value.table,
+        targetServer: tableMeta?.connectionKey || undefined,
+        conditions,
+      }),
     });
     const json = await res.json();
     if (!json.success) {
@@ -2708,6 +2725,7 @@ async function onPivotSelect(stepIdx, pivot, link) {
           targetColumn: link.targetColumn,
         }),
       });
+      if (!res.ok) console.error('pivot HTTP', res.status, await res.text().catch(() => ''));
       const json = await res.json();
       if (!json.success) {
         ElMessage.error(json.message || 'Pivot failed.');
@@ -2777,7 +2795,7 @@ async function onPivotSelect(stepIdx, pivot, link) {
     ElMessage.success(`Pivot to ${merged.targetTableLabel || link.targetTable}: ${merged.total.toLocaleString()} rows.`);
   } catch (err) {
     console.error(err);
-    ElMessage.error('Pivot API connection error.');
+    ElMessage.error(`Pivot failed: ${err?.message || 'connection error'}`);
   } finally {
     loading.value = false;
   }
@@ -2867,6 +2885,7 @@ const {
   combinedColOrigins,
   filteredCombinedData,
   paginatedCombinedData,
+  combinedTruncated,
   hasActiveCombinedFilters,
   getCombinedRows,
   trimCombinedMaster,

@@ -321,15 +321,22 @@ export class RegistryService {
     const map: Record<string, TableMeta> = {};
     for (const r of all) {
       if (!r.isActive) continue;
-      // Use tableName as key (same as before) — but if duplicate, last one wins
-      // This is OK because searchService/pivotService use connectionKey to route correctly
-      map[r.tableName] = {
+      // A qualified physical name (e.g. ACA.PACK_DATA_SERIAL) is authoritative
+      // for the database route. Some legacy registry rows were saved with a
+      // host-like dynamic connection id (sghudb02thbeltoncorp), which can send
+      // an ACA table to the wrong server. Prefer the matching static database
+      // connection when the DB prefix is known.
+      const dbPrefix = (r.dbTable || "").split(".")[0]?.trim();
+      const effectiveConnectionKey = dbPrefix === "ACA" || dbPrefix === "seagate"
+        ? dbPrefix
+        : r.connectionKey;
+      const meta: TableMeta = {
         tableName: r.tableName,
         dbTable: r.dbTable || r.tableName, // ชื่อฟิสิคัลที่ใช้สร้าง SQL (DB.TABLE ได้)
-        database: (r.connectionKey === "ACA" || r.connectionKey === "seagate") ? (r.connectionKey as "ACA" | "seagate") : undefined,
+        database: (effectiveConnectionKey === "ACA" || effectiveConnectionKey === "seagate") ? (effectiveConnectionKey as "ACA" | "seagate") : undefined,
         label: r.label,
         drizzleTable: null, // Always null for dynamic tables
-        connectionKey: r.connectionKey, // ✅ pass through so searchService can route to correct pool
+        connectionKey: effectiveConnectionKey, // route qualified ACA/seagate tables through static pools
         columns: r.columns,
         customSql: r.customSql ? {
           connectionKey: r.customSql.connectionKey,
@@ -364,6 +371,15 @@ export class RegistryService {
           },
         } as any : undefined,
       };
+      // Keep the legacy name for compatibility, but also retain every
+      // duplicate table under a qualified key so connection-aware lookup can
+      // distinguish (for example) ACA.PACK_DATA_SERIAL from BITR.PACK_DATA_SERIAL.
+      if (map[r.tableName]) {
+        const previous = map[r.tableName];
+        map[`${r.tableName}_${previous.connectionKey}`] = previous;
+      }
+      map[r.tableName] = meta;
+      map[`${r.tableName}_${r.connectionKey}`] = meta;
     }
     return map;
   }
