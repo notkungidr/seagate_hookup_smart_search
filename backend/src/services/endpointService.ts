@@ -268,16 +268,20 @@ export class EndpointService {
       if (op === "between" && valList.length < 2) continue; // malformed between — ignore rather than zero out results
 
       filtered = filtered.filter((row) => {
-        const cleanParamName = cleanName.replace(/^S\d+_/i, "");
-        let cellVal = row[cleanParamName];
+        // Try full param name first (S3_AREA_CODE), then strip prefix (AREA_CODE) as fallback
+        let cellVal = row[cleanName];
         if (cellVal === undefined) {
-          // Case/underscore-insensitive key matching
-          const normParam = cleanParamName.toLowerCase().replace(/[^a-z0-9]/g, "");
-          const foundKey = Object.keys(row).find(
-            (k) => k.toLowerCase().replace(/[^a-z0-9]/g, "") === normParam
-          );
-          if (foundKey) {
-            cellVal = row[foundKey];
+          const cleanParamName = cleanName.replace(/^S\d+_/i, "");
+          cellVal = row[cleanParamName];
+          if (cellVal === undefined) {
+            // Case/underscore-insensitive key matching
+            const normParam = cleanParamName.toLowerCase().replace(/[^a-z0-9]/g, "");
+            const foundKey = Object.keys(row).find(
+              (k) => k.toLowerCase().replace(/[^a-z0-9]/g, "") === normParam
+            );
+            if (foundKey) {
+              cellVal = row[foundKey];
+            }
           }
         }
 
@@ -802,12 +806,128 @@ export class EndpointService {
     const stepInfo: Record<number, { table: string; label: string; availablePivots?: any[] }> = {};
     const resolved = new Set<number>();
 
-    for (const stepIdx of Object.keys(seedsByStep).map(Number)) {
-      const table = this.stepTable(config, stepIdx);
-      const result = await searchService.search({ table, targetServer: this.stepServer(config, stepIdx), conditions: seedsByStep[stepIdx], limit: 1000000 });
-      stepRows[stepIdx] = result.rows;
-      stepInfo[stepIdx] = { table, label: result.tableLabel, availablePivots: result.availablePivots };
-      resolved.add(stepIdx);
+    // Build parent map first for optimization
+    const parentMap = new Map<number, { parentIdx: number; fromColKey: string; targetColKey: string }>();
+    for (let i = 0; i < config.hops.length; i++) {
+      const hop = config.hops[i];
+      const parentIdx = this.hopSourceStep(hop, i);
+      const childIdx = i + 1;
+      parentMap.set(childIdx, { parentIdx, fromColKey: hop.fromColumnKey, targetColKey: hop.targetColumn });
+    }
+
+    // Sort seeds by step index so parents resolve before children
+    let pendingSeeds = Object.keys(seedsByStep).map(Number).sort((a, b) => a - b);
+    let seedGuard = 0;
+
+    // Resolve seeds iteratively: try to resolve each, but defer if parent not ready yet
+    while (pendingSeeds.length > 0 && seedGuard++ < 20) {
+      const nextPending: number[] = [];
+
+      for (const stepIdx of pendingSeeds) {
+        const parentEdge = parentMap.get(stepIdx);
+
+        // If this step has a parent (step > 0) that isn't resolved yet, defer it
+        // Parent might be seeded directly OR resolved via pivot from earlier steps
+        if (parentEdge && !resolved.has(parentEdge.parentIdx)) {
+          console.error(`[BFS seed] deferring step ${stepIdx} — parent step ${parentEdge.parentIdx} not resolved yet`);
+          nextPending.push(stepIdx);
+          continue;
+        }
+
+        const table = this.stepTable(config, stepIdx);
+        const conditions = [...seedsByStep[stepIdx]]; // clone
+
+        // OPTIMIZATION: if parent is already resolved, constrain this seed by parent pivot values
+        if (parentEdge && resolved.has(parentEdge.parentIdx)) {
+          const parentTable = this.stepTable(config, parentEdge.parentIdx);
+          const parentServer = this.stepServer(config, parentEdge.parentIdx);
+          const parentLabel = this.resolveColumnLabel(parentTable, parentEdge.fromColKey, parentServer);
+          const parentValues = pivotService.extractValues(stepRows[parentEdge.parentIdx] || [], parentLabel);
+
+          if (parentValues.length > 0) {
+            // Check if seed already has condition on pivot column
+            const pivotColKey = parentEdge.targetColKey;
+            const existingIdx = conditions.findIndex(c => {
+              const k = c.column || c.key;
+              return k.toLowerCase() === pivotColKey.toLowerCase();
+            });
+
+            if (existingIdx >= 0) {
+              // Intersect with existing condition (if operator=in)
+              const existing = conditions[existingIdx];
+              if (existing.operator === 'in' && Array.isArray(existing.value)) {
+                const parentSet = new Set(parentValues.map(v => String(v).trim().toLowerCase()));
+                const intersected = existing.value.filter((v: any) => parentSet.has(String(v).trim().toLowerCase()));
+                conditions[existingIdx] = { ...existing, value: intersected };
+                console.error(`[BFS optimize] step ${stepIdx}: intersected seed ${pivotColKey} IN (${existing.value.length} values) with parent (${parentValues.length} values) → ${intersected.length} values`);
+              }
+              // Otherwise keep existing condition as-is (user's explicit filter wins)
+            } else {
+              // Add parent constraint as new IN condition
+              conditions.push({ column: pivotColKey, operator: 'in', value: '', values: parentValues });
+              console.error(`[BFS optimize] step ${stepIdx}: added parent constraint ${pivotColKey} IN (${parentValues.length} values)`);
+            }
+          }
+        }
+
+        const result = await searchService.search({ table, targetServer: this.stepServer(config, stepIdx), conditions, limit: 1000000 });
+        stepRows[stepIdx] = result.rows;
+        stepInfo[stepIdx] = { table, label: result.tableLabel, availablePivots: result.availablePivots };
+        resolved.add(stepIdx);
+      }
+
+      // If we have deferred seeds, try to resolve their parents via pivot
+      if (nextPending.length > 0 && nextPending.length === pendingSeeds.length) {
+        // No progress in this iteration — need to pivot unresolved parents
+        for (const childIdx of nextPending) {
+          const parentEdge = parentMap.get(childIdx);
+          if (parentEdge && !resolved.has(parentEdge.parentIdx)) {
+            // Check if grandparent is resolved so we can pivot parent
+            const grandParentEdge = parentMap.get(parentEdge.parentIdx);
+            if (!grandParentEdge || resolved.has(grandParentEdge.parentIdx)) {
+              // Can pivot parent now
+              const fromIdx = grandParentEdge ? grandParentEdge.parentIdx : 0;
+
+              // Find the hop that connects fromIdx → parentIdx
+              const parentHop = config.hops.find((h, i) => this.hopSourceStep(h, i) === fromIdx && (i + 1) === parentEdge.parentIdx);
+              if (!parentHop) {
+                console.error(`[BFS eager pivot] ERROR: cannot find hop from step ${fromIdx} to step ${parentEdge.parentIdx}`);
+                break;
+              }
+
+              const fromTable = this.stepTable(config, fromIdx);
+              const fromServer = this.stepServer(config, fromIdx);
+              const fromLabel = this.resolveColumnLabel(fromTable, parentHop.fromColumnKey, fromServer);
+              const sourceValues = pivotService.extractValues(stepRows[fromIdx] || [], fromLabel);
+              console.error(`[BFS eager pivot] resolving step ${parentEdge.parentIdx} (${parentHop.targetTable}) from step ${fromIdx} column ${parentHop.fromColumnKey} to unblock seed step ${childIdx}`);
+
+              if (sourceValues.length > 0) {
+                const pr = await pivotService.pivot({
+                  sourceValues,
+                  targetTable: parentHop.targetTable,
+                  targetServer: parentHop.targetServer,
+                  targetColumn: parentHop.targetColumn,
+                  limit: 1000000
+                });
+                stepRows[parentEdge.parentIdx] = pr.rows;
+                stepInfo[parentEdge.parentIdx] = { table: parentHop.targetTable, label: pr.targetTableLabel, availablePivots: pr.availablePivots };
+                resolved.add(parentEdge.parentIdx);
+              } else {
+                stepRows[parentEdge.parentIdx] = [];
+                stepInfo[parentEdge.parentIdx] = { table: parentHop.targetTable, label: parentHop.targetTable, availablePivots: [] };
+                resolved.add(parentEdge.parentIdx);
+              }
+              break; // Restart outer loop
+            }
+          }
+        }
+      }
+
+      pendingSeeds = nextPending;
+    }
+
+    if (pendingSeeds.length > 0) {
+      throw new Error(`BFS seed resolution deadlock: could not resolve steps [${pendingSeeds.join(",")}] after ${seedGuard} iterations`);
     }
 
     // ── 3. BFS over hop edges (forward + backward) ─────────────────────────────
