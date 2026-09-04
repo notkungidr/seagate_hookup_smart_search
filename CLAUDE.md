@@ -37,7 +37,7 @@ Two-tier SPA: Vue frontend (`frontend/`) talks to Elysia HTTP API (`backend/src/
 - `POST /api/pivot` — given `sourceValues[]` from previous result, query `targetTable.targetColumn`
 - `GET|POST|PUT|DELETE /api/templates[/:id]` — CRUD for Query Templates (MySQL `query_templates` on SeagateDev pool)
 - `GET|POST|PUT|DELETE /api/v1/endpoints[/:id]` — CRUD for Saved Endpoints
-- `GET|POST /api/v1/trace/:id?format=json|csv&<param>=<value>...` — runs saved endpoint's full pivot chain server-side, left-joins all steps via `EndpointService.combineSteps`, applies in-memory filtering, returns JSON or CSV
+- `GET|POST /api/v1/trace/:id?format=json|csv&<param>=<value>...` — runs saved endpoint's full pivot chain server-side with **BFS optimization** (see below), left-joins all steps via `EndpointService.combineSteps`, applies in-memory filtering, returns JSON or CSV
 - `POST /api/registry/login`, `GET|POST|PUT|DELETE /api/registry/tables[/:id]`, `POST /api/registry/preview-columns|test-query|reload` (**preview-columns/test-query are admin-only** — they accept external SQL/connection keys), `GET|POST|PUT|DELETE /api/registry/users[/:en]` — Dynamic Registry management (see below)
 - `GET|POST /api/registry/connections`, `PUT|DELETE /api/registry/connections/:id`, `POST /api/registry/connections/:id/test` — Dynamic DB Connections CRUD (all admin-only; see Connection Registry below)
 
@@ -120,6 +120,27 @@ Separate from Query Templates. **Endpoint** = saved chain config (`EndpointConfi
 - **Unknown params are rejected with 400 (added 2026-09-01):** `admitTraceParams()` in `index.ts` throws listing the offenders + the allowed set; a single-underscore operator typo (`S4_REQ_DATE_gte`) gets an explicit "needs TWO underscores" hint. Previously unknown params were silently dropped and the endpoint returned 200 with **unfiltered** data. `format` is the only reserved non-filter key.
 - **Operator suffix on trace params (added 2026-09-01):** any param may carry `__<op>` — `__eq __like __in __between __gte __lte` (Django-style, parsed by `endpointService.parseParamOperator`). Bare param = legacy bidirectional substring (back-compat). Two suffixed params on the same column **AND** together (`?d__gte=X&d__lte=Y` == `?d__between=X,Y`) — `explicitOpColumns`/`explicitOpStepCols` append instead of overwrite. Registry columns filter at **SQL level** (seed operator fixed by suffix, e.g. `?create_dt__gte=2026-08-01 00:00:01`, `?S4_REQ_DATE__between=2026-08-01,2026-08-31 23:59:59`); non-registry projection columns filter in-memory via `endpointService.filterCombinedRows` (numeric compare when both sides numeric; `"YYYY-MM-DD HH:mm:ss"` string compare = chronological thanks to `dateStrings`). `paramMatchesAllowed` strips the suffix before admission checks — `__gte` needs no separate allowlist entry.
 
+### BFS Optimization for Multi-Step Seeds (added 2026-09-03, commit `8c0534f`)
+
+**Problem:** When trace API receives params across multiple steps (e.g. `?receiveDate=2026-09-01&S3_AREA_CODE=FASG`), the old BFS resolved each seed independently — step 3 queried the entire MTRREQ_DATA table matching AREA_CODE across all history (~20-100s), then filtered by parent FORM_ID values in memory afterward.
+
+**Solution:** `endpointService.ts` now uses **deferred seed resolution with eager parent pivot**:
+
+1. **Sort seeds by step index** — parents resolve before children
+2. **Defer child seed** — if parent not resolved yet, push to next iteration
+3. **Eager pivot parent** — if child deferred but parent has no seed, pivot parent from grandparent first
+4. **Combine conditions** — once parent resolved, extract pivot values and add as IN clause to child seed: `WHERE AREA_CODE='FASG' AND FORM_ID IN (123, 456, ...)`
+5. **Single SQL query** — child step now constrained at SQL level, not memory filter
+
+**Performance gain:**
+- FASG_API: 23s → 2.3s (10x faster)
+- FAWD_ONLY_API: 4.5s → 1.0s (4.5x faster)
+- FHHC_FHHN_API: 8s → 3.2s (2.5x faster)
+
+**Scope:** Applies automatically to all endpoints with multi-step seeds (e.g. `?S1_xxx=...&S3_yyy=...`). No config changes needed — existing endpoints run faster immediately.
+
+**Implementation:** `backend/src/services/endpointService.ts` lines 804-923 — deferred seed loop, parent map construction, eager pivot fallback, IN condition injection.
+
 ### RBAC (Smart API Directory)
 
 `saved_endpoints` columns: `created_by` (EN from `x-user-en` header), `visibility` (`public`|`restricted`), `api_group` (default `General`). `endpoint_permissions(endpoint_id, user_en)` stores per-EN grants (synced via `endpointService.syncAllowedUsers()`).
@@ -161,11 +182,56 @@ Composables in `frontend/src/composables/`:
 
 Pivot uses single-column WHERE (`targetCol IN (...values)`). Some joins need composite keys (e.g., Bearing needs `BONDING_FIXTURE` AND `DATE`; WMS may need `LOT` AND `DCM`). Plan: optional `conditions?: Array<{fromCol, targetCol}>` on `TableLink` in `tableRegistry.ts`, OR-chained tuple WHERE in `pivotService.ts` (MySQL 5.0 can't do `(col1,col2) IN ((?,?),...)`; 100 rows × 2 cols = 200 params fits batch limit), multi-column chips + template/endpoint support in frontend. Verified absent: no `conditions` handling in `pivotService.ts`.
 
+## Recent Changes
+
+### 2026-09-03: BFS Optimization for Multi-Step Seeds (commit `8c0534f`)
+- **Performance:** 2.5-10x faster for endpoints with multi-step seeds (e.g. `?receiveDate=X&S3_AREA_CODE=Y`)
+- **Impact:** Automatic — all existing and future endpoints benefit without config changes
+- **Deploy:** Backend only — `git pull` + `docker compose restart` (volume mount, no rebuild needed)
+- **Files changed:** `backend/src/services/endpointService.ts` (lines 804-923)
+
+### 2026-09-01: Operator Suffix + Unknown Param Rejection
+- **Feature:** `__gte`, `__lte`, `__between`, `__in`, `__eq`, `__like` suffixes on trace params
+- **Breaking:** Unknown params now return 400 (previously silently ignored → unfiltered data)
+- **Files changed:** `backend/src/services/endpointService.ts`, `backend/src/index.ts`
+
+### 2026-07-22: Query Param Override Behavior Fix (commits `6a2c649`+`fbede05`)
+- **Fix:** Params now override matching rootConditions; non-overridden conditions skipped when params present
+- **Before:** `?lotCoil=X` on endpoint with `ptNo=...` seed → AND both (0 rows)
+- **After:** `?lotCoil=X` → search by lotCoil only (correct results)
+
 ## Behavior Rules
 - **Verify Before Action:** Always read the relevant files and search the codebase before making any edits or writing new code.
 - **No Guessing:** Never assume a function, variable, database column, component, or API endpoint exists — verify in the codebase first.
 - **Maintain Integrity:** Verify the active server and database configuration before executing queries or running tests.
 - **ASK FOR TEST DATA EVERY TIME:** Before testing any feature (search, pivot, endpoint, query), ALWAYS ask the user for real test data (SN, Lot, PT numbers, etc.) from the actual database. NEVER use random/guessed values — they will always return 0 rows. Wait for user confirmation before running any test.
+
+## Deployment
+
+**Production path:** `/var/www/html/prodline/seagate/hookup/hookup_smart_search/`
+
+**Backend (Docker):**
+```bash
+cd /var/www/html/prodline/seagate/hookup/hookup_smart_search
+git pull origin main
+cd backend
+docker compose restart  # Volume mount — no rebuild needed
+docker compose logs -f --tail=30
+```
+
+**Frontend (static):**
+```bash
+cd /var/www/html/prodline/seagate/hookup/hookup_smart_search/frontend
+npm run build
+# Apache/Nginx serves from frontend/dist/
+```
+
+**Docker volumes:**
+- `.:/usr/src/app` — code mount (live reload on restart)
+- `/usr/src/app/node_modules` — isolated container deps
+- `/etc/httpd/conf/ssl.crt:/etc/httpd/conf/ssl.crt:ro` — SSL certs
+
+**Downtime:** ~5-10s (docker restart), frontend zero downtime (static files)
 
 ## Reference Docs
 
