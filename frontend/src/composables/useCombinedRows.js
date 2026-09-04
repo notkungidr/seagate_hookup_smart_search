@@ -22,8 +22,8 @@ export function useCombinedRows({
   const debouncedCombinedFilter = ref('');
   const combinedColFilters = ref({});
 
-  // ponytail: hard cap — multi-million row fan-out OOMs the tab ("this page is having a problem"); export caps at 50k anyway
-  const MAX_COMBINED_ROWS = 200000;
+  // ponytail: hard cap — multi-million row fan-out OOMs the tab ("this page is having a problem"); 100k = 2x the 50k export limit
+  const MAX_COMBINED_ROWS = 100000;
   const combinedTruncated = ref(false);
 
   let combinedFilterTimer = null;
@@ -298,9 +298,11 @@ export function useCombinedRows({
       });
 
       // ponytail: one-to-many lookup — each key maps to ARRAY of rows (fan-out support)
+      // ประกาศ: key lowercase — SQL pivot match แบบ ci collation แต่ JS เป็น case-sensitive
+      // (เช่น store_lot 'velx0BH...' vs LOT_NO 'VELX0BH...') ไม่ normalize แล้ว join หลุดทุกแถว
       const lookup = new Map();
       rows.forEach((row) => {
-        const key = String(row[incomingJoinCol] ?? '').trim();
+        const key = String(row[incomingJoinCol] ?? '').trim().toLowerCase();
         if (key) {
           if (!lookup.has(key)) lookup.set(key, []);
           lookup.get(key).push(row);
@@ -312,7 +314,7 @@ export function useCombinedRows({
       let overflow = false;
       outputRows.forEach((outRow) => {
         if (overflow) return;
-        const key = String(outRow[outputJoinCol] ?? '').trim();
+        const key = String(outRow[outputJoinCol] ?? '').trim().toLowerCase();
         const matches = key ? lookup.get(key) : undefined;
 
         if (matches && matches.length > 0) {

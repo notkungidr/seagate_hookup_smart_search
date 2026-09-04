@@ -12,6 +12,15 @@ function formatParams(params: any[]): string {
   return JSON.stringify(params);
 }
 
+// customSql template อาจจบด้วย GROUP BY/ORDER BY — เงื่อนไขจาก UI ต้องแทรก "ก่อน" clause เหล่านั้น
+// (append ท้ายตรงๆ = `GROUP BY x AND col = ?` → syntax error)
+// คืน head (จุดต่อ WHERE เพิ่ม) + tail (clause ที่ต่อกลับก่อน LIMIT)
+// จับเฉพาะ clause ท้ายสุดที่ไม่มีวงเล็บต่อท้าย — ถ้า GROUP BY อยู่ใน subquery ให้คง behavior เดิม
+function splitSqlTail(baseSql: string): { head: string; tail: string } {
+  const m = baseSql.match(/\s+((?:GROUP|ORDER)\s+BY\s+[^()]+)$/i);
+  return m ? { head: baseSql.slice(0, m.index), tail: ` ${m[1]}` } : { head: baseSql, tail: "" };
+}
+
 export interface SearchCondition {
   column: string;      // key ใน TABLE_REGISTRY (camelCase)
   operator: "like" | "eq" | "in" | "between" | "gte" | "lte";
@@ -337,6 +346,9 @@ export class SearchService {
       baseSql = `SELECT ${selectClause} FROM ${quoteTableRef(dbTable)} WHERE 1=1`;
     }
 
+    // เงื่อนไขจาก UI ต้องแทรกก่อน GROUP BY/ORDER BY ท้าย template (ถ้ามี)
+    const { head: baseHead, tail: baseTail } = splitSqlTail(baseSql);
+
     const queryParams: any[] = [];
     const inCondition = conditionsList.find(c => c.operator === "in");
 
@@ -402,7 +414,7 @@ export class SearchService {
           }
         }
 
-        const fullSql = `${baseSql}${batchWhere} LIMIT ${limit}`;
+        const fullSql = `${baseHead}${batchWhere}${baseTail} LIMIT ${limit}`;
         if (i === 0) {
           executedQueries.push({ sql: fullSql, params: batchParams });
         }
@@ -444,7 +456,7 @@ export class SearchService {
         }
       }
 
-      const fullSql = `${baseSql}${additionalWhere} LIMIT ${limit}`;
+      const fullSql = `${baseHead}${additionalWhere}${baseTail} LIMIT ${limit}`;
       executedQueries.push({ sql: fullSql, params: batchParams });
 
       console.log(`\n\x1b[35m╔════════════ [customSql Search] ════════════\x1b[0m`);

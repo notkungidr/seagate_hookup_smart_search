@@ -734,7 +734,7 @@
                 </span>
                 <span class="card-row-count">{{ combinedData.length.toLocaleString() }} rows</span>
                 <span v-if="combinedTruncated" style="margin-left:8px; font-size:var(--fs-xs); color:#ffd04b; font-weight:600;">
-                  ⚠️ fan-out เกิน 200,000 แถว — แสดงเฉพาะ 200,000 แถวแรก ที่เหลือ mark TRUNCATED (กรองข้อมูลหรือสลับ Master Axis เพื่อลดขนาด)
+                  ⚠️ fan-out เกิน 100,000 แถว — แสดงเฉพาะ 100,000 แถวแรก ที่เหลือ mark TRUNCATED (กรองข้อมูลหรือสลับ Master Axis เพื่อลดขนาด)
                 </span>
               </div>
 

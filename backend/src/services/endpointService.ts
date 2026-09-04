@@ -218,7 +218,9 @@ export class EndpointService {
 
     for (let stepIdx = 0; stepIdx <= config.hops.length; stepIdx++) {
       try {
-        this.resolveColumnKey(this.stepTable(config, stepIdx), paramName, "API parameter");
+        // cleanName (NOT paramName) — 'col__gte' must resolve like 'col', else the
+        // SQL-applied param falls through to in-memory filtering and zeroes prefixed rows
+        this.resolveColumnKey(this.stepTable(config, stepIdx), cleanName, "API parameter");
         return true;
       } catch {
         // Continue: an unprefixed parameter binds to the first matching step.
@@ -868,13 +870,14 @@ export class EndpointService {
         pivotService.extractValues(
           stepRows[parentIdx] || [],
           this.resolveColumnLabel(this.stepTable(config, parentIdx), hop.fromColumnKey, this.stepServer(config, parentIdx))
-        )
+        ).map((v) => String(v).trim().toLowerCase())
       );
       const childLabel = this.resolveColumnLabel(this.stepTable(config, childIdx), hop.targetColumn, this.stepServer(config, childIdx));
       stepRows[childIdx] = (stepRows[childIdx] || []).filter((r) => {
         const v = r[childLabel];
         if (v === undefined || v === null || String(v).trim() === "") return false;
-        return parentValues.has(String(v).trim());
+        // lowercase compare — SQL pivot matched ci collation, don't drop rows on case mismatch
+        return parentValues.has(String(v).trim().toLowerCase());
       });
     }
 
@@ -1096,7 +1099,9 @@ export class EndpointService {
         const physicalCol = rowColumns.find(c => c === incomingJoinCol)
                          || rowColumns.find(c => c.toLowerCase() === incomingJoinCol.toLowerCase())
                          || incomingJoinCol;
-        const key = String(row[physicalCol] ?? "").trim();
+        // join key lowercase — SQL pivot matches ci collation, JS is case-sensitive
+        // (e.g. store_lot 'velx0BH...' vs LOT_NO 'VELX0BH...') — keep in sync with useCombinedRows.js
+        const key = String(row[physicalCol] ?? "").trim().toLowerCase();
         if (key) {
           if (!lookup.has(key)) lookup.set(key, []);
           lookup.get(key)!.push(row);
@@ -1111,7 +1116,7 @@ export class EndpointService {
         const outputPhysicalCol = outRowKeys.find(c => c === outputJoinCol)
                                 || outRowKeys.find(c => c.toLowerCase() === outputJoinCol.toLowerCase())
                                 || outputJoinCol;
-        const key = String(outRow[outputPhysicalCol] ?? "").trim();
+        const key = String(outRow[outputPhysicalCol] ?? "").trim().toLowerCase();
         const matches = key ? lookup.get(key) : undefined;
 
         if (matches && matches.length > 0) {

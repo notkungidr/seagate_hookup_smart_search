@@ -250,6 +250,7 @@
                     <ul>
                       <li>Use <code>?col</code> for column auto-injection.</li>
                       <li>Use <code>IN (?)</code> for dynamic search arrays.</li>
+                      <li>Trailing <code>GROUP BY</code> / <code>ORDER BY</code> is allowed — search conditions are auto-inserted before it.</li>
                       <li>Do not include trailing semicolons (;).</li>
                     </ul>
                   </div>
