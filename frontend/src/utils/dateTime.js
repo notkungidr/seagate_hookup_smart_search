@@ -5,10 +5,15 @@ function isExcludedUserStamp(normalized) {
   return normalized.includes('user_reg') || normalized.includes('user_upd') || normalized.includes('userreg') || normalized.includes('userupd');
 }
 
+// ponytail: ตัดป้าย S{N}_ ของ combined view ออกก่อนเช็ค — ไม่งั้น 'S1_reg' ไม่ match 'reg' (exact match)
+function stripStepPrefix(colName) {
+  return String(colName).replace(/^S\d+_/i, '');
+}
+
 // คอลัมน์วันที่ทั้งหมด (DATE/DATETIME) — เช่น createDate, create_dt, scandate, reg
 export function isDateColumnName(colName) {
   if (!colName) return false;
-  const normalized = colName.toLowerCase();
+  const normalized = stripStepPrefix(colName).toLowerCase();
   if (isExcludedUserStamp(normalized)) return false;
   return normalized.includes('date') || normalized.includes('time') || normalized.includes('crdt') || normalized === 'reg' || normalized === 'upd' || /dt$/.test(normalized);
 }
@@ -17,7 +22,7 @@ export function isDateColumnName(colName) {
 // (คอลัมน์ date/time ทั่วไปคง picker แบบวันที่เดิม)
 export function isDateTimeColumnName(colName) {
   if (!colName) return false;
-  const normalized = colName.toLowerCase();
+  const normalized = stripStepPrefix(colName).toLowerCase();
   if (isExcludedUserStamp(normalized)) return false;
   return /dt$/.test(normalized);
 }

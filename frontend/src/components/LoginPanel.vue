@@ -36,10 +36,7 @@
           />
         </el-form-item>
         
-        <div class="login-hint-bubble">
-          💡 <strong>สำหรับทดสอบระบบ:</strong> 
-          ใช้ Username <code>0001</code> เพื่อสิทธิ์ Admin หรือ <code>9999</code> เพื่อสิทธิ์ Viewer ในการเข้าสู่ระบบ
-        </div>
+        
 
         <div class="login-actions">
           <el-button

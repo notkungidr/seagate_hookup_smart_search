@@ -11,7 +11,7 @@ export function useExcelExport({
   loadingText,
 }) {
   const exportDialogVisible = ref(false);
-  const exportFormat = ref('xlsb');
+  const exportFormat = ref('xlsx');
   const exportOptions = ref({
     includeCombined: true,
     selectedSteps: [],
@@ -41,13 +41,15 @@ export function useExcelExport({
 
     exportOptions.value.includeCombined = chainSteps.value.length > 1;
     exportOptions.value.selectedSteps = chainSteps.value.map((_, idx) => idx);
-    exportFormat.value = totalSelectedRows.value > 30000 ? 'xlsb' : 'xlsx';
+    // ponytail: xlsb เขียนช้ากว่า xlsx ~25x (SheetJS CE) — 20k แถว x 3 sheets = 88s บน main thread
+    // xlsx ถึง ~100k แถวยังอยู่ในหลักวินาที; เกินนั้น CSV เท่านั้นที่ไม่ freeze tab
+    exportFormat.value = totalSelectedRows.value > 100000 ? 'csv' : 'xlsx';
     exportDialogVisible.value = true;
   }
 
   function setExportPreset(type) {
     if (exportFormat.value === 'csv' && type !== 'combined') {
-      exportFormat.value = 'xlsb';
+      exportFormat.value = 'xlsx';
     }
 
     if (type === 'combined') {
@@ -110,13 +112,13 @@ export function useExcelExport({
       return 'ส่งออกเป็น CSV: เปิดใน Excel ได้เร็วและรองรับภาษาไทย';
     }
     if (exportFormat.value === 'xlsb') {
-      return `ส่งออกเป็น Binary (.xlsb): เหมาะกับข้อมูลขนาดใหญ่ (${rows.toLocaleString()} แถว)`;
+      return `⚠️ .xlsb เขียนช้ามาก (~25 เท่าของ .xlsx) — ${rows.toLocaleString()} แถวอาจใช้เวลาเป็นนาทีและหน้าจอค้าง แนะนำ .xlsx หรือ CSV`;
     }
     if (rows > 1000000) {
-      return 'ข้อมูลใกล้หรือเกินขีดจำกัด Excel sheet แนะนำให้ใช้ Binary (.xlsb) หรือ CSV';
+      return 'ข้อมูลเกินขีดจำกัด Excel sheet (1,048,576 แถว) — ต้องใช้ CSV';
     }
     if (rows > 100000) {
-      return 'ข้อมูลค่อนข้างใหญ่ .xlsx อาจเปิดช้า แนะนำ Binary (.xlsb) หรือ CSV';
+      return `ข้อมูลใหญ่ (${rows.toLocaleString()} แถว) .xlsx จะใช้เวลาสร้างหลายสิบวินาที แนะนำ CSV`;
     }
     if (rows > 0) {
       return 'ขนาดข้อมูลเหมาะสม สามารถส่งออกได้ทุก format';
@@ -126,7 +128,8 @@ export function useExcelExport({
 
   const exportStatusClass = computed(() => {
     const rows = totalSelectedRows.value;
-    if (exportFormat.value === 'csv' || exportFormat.value === 'xlsb') return 'badge-success';
+    if (exportFormat.value === 'xlsb') return 'badge-warning';
+    if (exportFormat.value === 'csv') return 'badge-success';
     if (rows > 1000000) return 'badge-danger';
     if (rows > 100000) return 'badge-warning';
     if (rows > 0) return 'badge-success';
@@ -288,8 +291,17 @@ export function useExcelExport({
   }
 
   function appendJsonSheet(wb, rows, sheetName) {
-    const ws = XLSX.utils.json_to_sheet(rows);
+    // ponytail: aoa_to_sheet เร็วกว่า json_to_sheet ~35% (ไม่ต้อง scan key ทุกแถว)
     const cols = Object.keys(rows[0]);
+    const aoa = new Array(rows.length + 1);
+    aoa[0] = cols;
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const cells = new Array(cols.length);
+      for (let j = 0; j < cols.length; j++) cells[j] = row[cols[j]] ?? null;
+      aoa[i + 1] = cells;
+    }
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
     ws['!cols'] = cols.map((col) => ({
       wch: Math.max(col.length + 2, ...rows.slice(0, 50).map((r) => String(r[col] ?? '').length + 1)),
     }));

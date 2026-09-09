@@ -25,6 +25,8 @@ export function useCombinedRows({
   // ponytail: hard cap — multi-million row fan-out OOMs the tab ("this page is having a problem"); 100k = 2x the 50k export limit
   const MAX_COMBINED_ROWS = 100000;
   const combinedTruncated = ref(false);
+  // { stepIdx: droppedMatchCount } — sibling branches ที่ถูกบีบเหลือ match แรก (ดู buildCombinedRows)
+  const combinedFanOutSuppressed = ref({});
 
   let combinedFilterTimer = null;
   watch(combinedFilterText, (value) => {
@@ -165,6 +167,7 @@ export function useCombinedRows({
 
   function buildCombinedRows() {
     combinedTruncated.value = false;
+    combinedFanOutSuppressed.value = {};
     if (!chainSteps.value.length) return { rows: [], colSteps: {}, colOrigins: {} };
 
     const steps = chainSteps.value
@@ -193,23 +196,29 @@ export function useCombinedRows({
     const baseKey = detectJoinKey(baseRows);
     if (!baseRows.length || !baseKey) return { rows: [], colSteps: {}, colOrigins: {} };
 
-    const outputRows = baseRows.map((row) => {
-      const copy = { ...row };
-      return copy;
-    });
-
     let baseColumns = Object.keys(baseRows[0]);
 
-    const usedColumns = new Set(baseColumns);
-    const usedColumnsLower = new Set(baseColumns.map(c => c.toLowerCase())); // case-insensitive tracking
+    const usedColumns = new Set();
+    const usedColumnsLower = new Set(); // case-insensitive tracking
     const columnAliases = { [baseIdx]: {} };
-    
+
     const colSteps = {};
     const colOrigins = {};
+    // ponytail: prefix master ด้วย S{N}_ เหมือน step อื่น — ทุกคอลัมน์ใน export/UI บอกที่มาได้
+    // ตรงกับ backend combineSteps ที่ prefix master อยู่แล้ว (endpointService.ts:1084)
     baseColumns.forEach((col) => {
-      columnAliases[baseIdx][col] = col;
-      colSteps[col] = baseIdx;
-      colOrigins[col] = col;
+      const alias = `S${baseIdx + 1}_${col}`;
+      columnAliases[baseIdx][col] = alias;
+      usedColumns.add(alias);
+      usedColumnsLower.add(alias.toLowerCase());
+      colSteps[alias] = baseIdx;
+      colOrigins[alias] = col;
+    });
+
+    const outputRows = baseRows.map((row) => {
+      const copy = {};
+      for (const col of baseColumns) copy[columnAliases[baseIdx][col]] = row[col];
+      return copy;
     });
 
     const joined = new Set([baseIdx]);
@@ -288,8 +297,8 @@ export function useCombinedRows({
       const aliases = {};
       columnAliases[idx] = aliases;
       rowColumns.forEach((col) => {
-        // ponytail: always prefix non-root steps to show origin (S2_, S3_), not just duplicates
-        const alias = idx === baseIdx ? col : `S${idx + 1}_${col}`;
+        // ponytail: ทุก step prefix S{N}_ รวม master (ดูบล็อก baseColumns ด้านบน)
+        const alias = `S${idx + 1}_${col}`;
         aliases[col] = alias;
         usedColumns.add(alias);
         usedColumnsLower.add(alias.toLowerCase());
@@ -309,13 +318,28 @@ export function useCombinedRows({
         }
       });
 
+      // ponytail: sibling branch = อีก step ที่ pivot จาก parent เดียวกันและ join เข้ามาแล้ว
+      // สองสายที่แตกจาก parent ตัวเดียวกันเป็น "ทางเลือก" ของ parent นั้น ไม่ใช่ลูกโซ่ต่อกัน
+      // fan-out ทั้งสองข้างพร้อมกัน = cartesian (14,785 x 12,920/77 ≈ 2.5M แถวซ้ำ ไม่มีความหมาย)
+      // เอา match แรกของสายที่มาทีหลัง แล้วรายงานจำนวนที่ตัดทิ้งให้ UI เตือน
+      let siblingJoined = false;
+      for (const jIdx of joined) {
+        if (jIdx === idx || jIdx === parentIdx) continue;
+        if (chainSteps.value[jIdx]?._pivotFromStepIdx === parentIdx) { siblingJoined = true; break; }
+      }
+      let suppressedMatches = 0;
+
       // ponytail: fan-out join — when incoming step has multiple rows per key, expand outputRows
       const expandedRows = [];
       let overflow = false;
       outputRows.forEach((outRow) => {
         if (overflow) return;
         const key = String(outRow[outputJoinCol] ?? '').trim().toLowerCase();
-        const matches = key ? lookup.get(key) : undefined;
+        let matches = key ? lookup.get(key) : undefined;
+        if (siblingJoined && matches && matches.length > 1) {
+          suppressedMatches += matches.length - 1;
+          matches = [matches[0]];
+        }
 
         if (matches && matches.length > 0) {
           // Fan-out: create one output row per match
@@ -337,6 +361,9 @@ export function useCombinedRows({
           expandedRows.push(outRow);
         }
       });
+      if (suppressedMatches > 0) {
+        combinedFanOutSuppressed.value[idx] = suppressedMatches;
+      }
       if (overflow) {
         // Keep the capped rows (data up to here is fully joined), mark the rest
         combinedTruncated.value = true;
@@ -415,6 +442,7 @@ export function useCombinedRows({
     filteredCombinedData,
     paginatedCombinedData,
     combinedTruncated,
+    combinedFanOutSuppressed,
     hasActiveCombinedFilters,
     buildCombinedRows,
     getCombinedRows,

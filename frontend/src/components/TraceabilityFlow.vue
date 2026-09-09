@@ -736,6 +736,9 @@
                 <span v-if="combinedTruncated" style="margin-left:8px; font-size:var(--fs-xs); color:#ffd04b; font-weight:600;">
                   ⚠️ fan-out เกิน 100,000 แถว — แสดงเฉพาะ 100,000 แถวแรก ที่เหลือ mark TRUNCATED (กรองข้อมูลหรือสลับ Master Axis เพื่อลดขนาด)
                 </span>
+                <span v-if="fanOutSuppressedText" style="margin-left:8px; font-size:var(--fs-xs); color:#95d475; font-weight:600;">
+                  {{ fanOutSuppressedText }}
+                </span>
               </div>
 
               <!-- Axis Selector: Swapping the Left-Join pivot main axis dynamically inside combine view -->
@@ -2886,6 +2889,7 @@ const {
   filteredCombinedData,
   paginatedCombinedData,
   combinedTruncated,
+  combinedFanOutSuppressed,
   hasActiveCombinedFilters,
   getCombinedRows,
   trimCombinedMaster,
@@ -2896,6 +2900,18 @@ const {
   tablesMeta,
   getFilteredRows,
   getGridColumns,
+});
+
+// ponytail: บอกว่า sibling branch ไหนถูกบีบเหลือ match แรก (กัน cartesian) — ไม่งั้นผู้ใช้ไม่รู้ว่าข้อมูลไม่ครบ
+const fanOutSuppressedText = computed(() => {
+  const entries = Object.entries(combinedFanOutSuppressed.value || {});
+  if (!entries.length) return '';
+  const parts = entries.map(([idx, n]) => {
+    const step = chainSteps.value[Number(idx)];
+    const label = step?.tableLabel ?? step?.targetTable ?? `Step ${Number(idx) + 1}`;
+    return `${label} (-${Number(n).toLocaleString()})`;
+  });
+  return `ℹ️ กัน cartesian: สาขาแยก ${parts.join(', ')} แสดงแถวแรกต่อ key — ดูครบให้เลือก step นั้นเป็น Master Axis`;
 });
 
 const totalCombinedRows = computed(() => {

@@ -9,25 +9,32 @@
     @update:model-value="$emit('update:modelValue', $event)"
   >
     <div class="export-dialog-content">
-      <div class="export-warning-banner" v-if="totalSelectedRows > 50000 && exportFormat === 'xlsx'">
+      <div class="export-warning-banner" v-if="exportFormat === 'xlsb'">
+        <span class="warning-icon">!</span>
+        <div>
+          <strong>.xlsb is ~25x slower to generate</strong>
+          <p>{{ totalSelectedRows.toLocaleString() }} rows may take minutes and freeze the page. Use .xlsx or CSV instead.</p>
+        </div>
+      </div>
+      <div class="export-warning-banner" v-else-if="totalSelectedRows > 100000 && exportFormat === 'xlsx'">
         <span class="warning-icon">!</span>
         <div>
           <strong>Large data set: {{ totalSelectedRows.toLocaleString() }} rows</strong>
-          <p>Standard .xlsx may open slowly. Use Binary .xlsb or CSV for faster handling.</p>
+          <p>Generating .xlsx will take tens of seconds. CSV is far faster.</p>
         </div>
       </div>
 
       <div class="export-format-section">
         <span class="section-title">File Format</span>
         <div class="format-options-group">
-          <div class="format-card" :class="{ 'is-selected': exportFormat === 'xlsb' }" @click="$emit('set-format', 'xlsb')">
+          <div class="format-card" :class="{ 'is-selected': exportFormat === 'xlsx' }" @click="$emit('set-format', 'xlsx')">
             <div class="format-card-header">
               <span class="format-badge recommended">Recommended</span>
-              <span class="format-extension">.xlsb</span>
+              <span class="format-extension">.xlsx</span>
             </div>
             <div class="format-card-body">
-              <strong>Binary Excel Workbook</strong>
-              <p>Best for large exports. Smaller files and faster Excel open time.</p>
+              <strong>Standard Excel Sheet</strong>
+              <p>Multi-sheet workbook. Fine up to ~100k rows.</p>
             </div>
           </div>
 
@@ -42,13 +49,14 @@
             </div>
           </div>
 
-          <div class="format-card" :class="{ 'is-selected': exportFormat === 'xlsx' }" @click="$emit('set-format', 'xlsx')">
+          <div class="format-card" :class="{ 'is-selected': exportFormat === 'xlsb' }" @click="$emit('set-format', 'xlsb')">
             <div class="format-card-header">
-              <span class="format-extension">.xlsx</span>
+              <span class="format-badge slow">Slow</span>
+              <span class="format-extension">.xlsb</span>
             </div>
             <div class="format-card-body">
-              <strong>Standard Excel Sheet</strong>
-              <p>Useful for smaller exports and normal workbook workflows.</p>
+              <strong>Binary Excel Workbook</strong>
+              <p>Smallest file, but ~25x slower to generate. Only for small exports.</p>
             </div>
           </div>
         </div>
@@ -260,6 +268,11 @@ defineEmits([
   background: #f0f9eb;
   color: var(--c-success);
   border: 1px solid #c2e7b0;
+}
+.format-badge.slow {
+  background: #fdf6ec;
+  color: var(--c-warning);
+  border: 1px solid #f5dab1;
 }
 .format-card-body strong {
   font-size: var(--fs-sm);
