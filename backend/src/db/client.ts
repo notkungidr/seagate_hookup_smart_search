@@ -74,9 +74,9 @@ export const CONNECTION_CONFIGS = {
     database: "WMS",
   },
   SeagateDev: {
-    host: process.env.DB_SEAGATEDEV_HOST || "devth-db2.th.belton.corp",
-    user: process.env.DB_SEAGATEDEV_USER!,
-    password: process.env.DB_SEAGATEDEV_PASSWORD!,
+    host:"sghu-db01.th.belton.corp",
+    user: "intranet4",
+    password: "Mydb-Bit2007Jan",
     database: "seagate",
   },
   seagateACADev: {
