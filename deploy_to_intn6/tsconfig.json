@@ -1,0 +1,26 @@
+{
+  // EDITOR-ONLY config. There is no `tsc` step in dev/build/start:
+  //   - dev/start:  `bun run src/index.ts`  (Bun strips types, no type-check)
+  //   - this config never emits JS ("noEmit": true)
+  // Purpose: give VSCode one TS program that loads reset.d.ts so ts-reset's
+  // global type patches apply across the whole backend. Intentionally NOT
+  // strict, to avoid flooding existing files with errors on day one — we
+  // tighten incrementally.
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": false,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "allowJs": true,
+    "strict": false,
+    "types": ["bun"]
+  },
+  "include": ["reset.d.ts", "src/**/*.ts"],
+  "exclude": ["node_modules", "temp", ".tmpcheck"]
+}
