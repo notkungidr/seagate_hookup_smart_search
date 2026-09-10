@@ -1062,7 +1062,7 @@ const SSL_CA_PATH = process.env.SSL_CA_PATH || "/etc/httpd/conf/ssl.crt/beltonte
 const PORT = Number(process.env.PORT || 9090);
 const listenOptions: any = { port: PORT };
 
-let protocol = "http";
+let protocol = "https";
 
 try {
   if (fs.existsSync(SSL_CERT_PATH) && fs.existsSync(SSL_KEY_PATH)) {
