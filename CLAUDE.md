@@ -15,14 +15,17 @@ Seagate Hookup Smart Search — production traceability tool for the Seagate ACA
 - `bun test` — runs `src/services/endpointService.test.ts` (only test file; not a full suite)
 - Swagger UI auto-mounted at `GET /swagger`
 - Requires `backend/.env` (copy from `.env.example`) — supplies `DB_*` credentials
-- HTTPS: set `ENABLE_TLS=true` + cert env vars (`SSL_CERT_PATH`, `SSL_KEY_PATH`, `SSL_CA_PATH`). Defaults to `/etc/httpd/conf/ssl.crt/beltontechnology_com.*` (production box). Falls back to HTTP if certs missing.
+- HTTPS: `index.ts` enables TLS whenever `SSL_CERT_PATH` + `SSL_KEY_PATH` exist (defaults `/etc/httpd/conf/ssl.crt/beltontechnology_com.*`, `SSL_CA_PATH` optional); otherwise it silently serves **HTTP**. `ENABLE_TLS` is read **only** by the docker-compose healthcheck to pick the URL scheme, not by the server. Gotcha: the startup log's `protocol` variable now defaults to `"https"` (commit `389e9b8`), so the "running at https://" line prints even on HTTP fallback — trust the `🔒 SSL/TLS Enabled` / `SSL certificates not found` line instead.
 
 **Frontend** (`frontend/`, Vue 3 + Vite + Element Plus):
 - `cd frontend && npm install`
 - `npm run dev` — Vite dev server
 - `npm run build` / `npm run preview`
+- `node src/composables/useCombinedRows.test.mjs` — assert-based self-check for combined-view sibling-branch fan-out (no test runner)
 
 **No lint or formatter** — `backend/src/check_*.ts` and `simulate_run.ts` are ad-hoc probes (`bun run <file>`), not a test harness.
+
+**`deploy_to_intn6/`** — hand-copied backend snapshot for the intn6 prod box (tests/probes stripped, own `README.md`). Currently byte-identical to `backend/` for `src/**`, Dockerfile, compose, package.json. It is **not** generated: edit `backend/` first, then re-copy changed files into `deploy_to_intn6/` or the two drift.
 
 ## Architecture
 
@@ -62,7 +65,7 @@ Credentials come from `.env` via `CONNECTION_CONFIGS` (`DB_SEAGATE_*`, `DB_BITIN
 
 Connection keys (via `getDb(key)` / exported consts): `seagate` (DB `seagate` — Scan1, Soldering, Baking, Scan2.1, Bonding), `ACA`, `Bitintra` (no default DB — cross-DB queries), `BITR`, `BITR_IMM`, `BITR_SM`, `WORKFLOW`, `dbHr`, `dbBIT`, `dbWMS` (`SHIPMENTPALLET_BOX_PROD`, `SG_FGREC_DATA`), `SeagateDev` (app metadata: `query_templates`, `saved_endpoints`, `registry_tables`, `registry_users`, `endpoint_permissions`, `registry_connections` — DDLs auto-`CREATE TABLE IF NOT EXISTS` at startup), `seagateACADev`, `SGCOIL`, `HGSTACA`, `SEAPRINT`, `SOFT` — plus any id from `registry_connections` (see below).
 
-Tech debt: a few entries still hardcode user/password (`seagateACADev`, `SGCOIL`/`HGSTACA` usernames) — don't "fix" piecemeal; ask first.
+Tech debt: some entries hardcode host/user/password instead of reading `.env` — `seagateACADev`, `SGCOIL`/`HGSTACA` usernames, and since go-live (commit `49d09bc`) **`SeagateDev` itself** (host `sghu-db01`, prod app-metadata DB; `DB_SEAGATEDEV_*` in `.env` is ignored). These credentials are committed to git. Don't "fix" piecemeal; ask first.
 
 ### Connection Registry: static + dynamic layers
 
@@ -139,7 +142,7 @@ Separate from Query Templates. **Endpoint** = saved chain config (`EndpointConfi
 
 **Scope:** Applies automatically to all endpoints with multi-step seeds (e.g. `?S1_xxx=...&S3_yyy=...`). No config changes needed — existing endpoints run faster immediately.
 
-**Implementation:** `backend/src/services/endpointService.ts` lines 804-923 — deferred seed loop, parent map construction, eager pivot fallback, IN condition injection.
+**Implementation:** deferred seed loop in `endpointService.ts` (parent map construction, eager pivot fallback, IN condition injection).
 
 ### RBAC (Smart API Directory)
 
@@ -172,9 +175,21 @@ Frontend: Save API dialog in `TraceabilityFlow.vue` sends `x-user-en` from `loca
 Composables in `frontend/src/composables/`:
 - `useQueryTemplates.js` — template CRUD + `runTemplateChain()` executor
 - `useChainTracker.js` — tracks live pivot chain state
-- `useCombinedRows.js` — client-side fan-out left-join of chain steps for combined view
-- `useExcelExport.js` — `xlsx`-based workbook export
+- `useCombinedRows.js` — client-side fan-out left-join of chain steps for combined view (see below)
+- `useExcelExport.js` — SheetJS workbook export (sheets built via `aoa_to_sheet`, ~35% faster than `json_to_sheet`)
 - `useAutoStreamingDownload.js.disabled` — disabled streaming-download experiment (backend combine-job API removed)
+
+Utils: `frontend/src/utils/dateTime.js` — date/datetime column detection by name; strips the `S{N}_` prefix before matching.
+
+### Combined View (`useCombinedRows.js`)
+
+- **Every column is prefixed `S{N}_`**, master included (since commit `81e0bb3`), matching backend `combineSteps`. Any code that looks up combined-row columns by raw label must strip/add the prefix (`dateTime.js` does).
+- **Sibling-branch cartesian prevention:** when a step pivots from a parent that already has another joined child (`_pivotFromStepIdx` equal), that later sibling contributes only its **first match per key**; dropped counts land in `combinedFanOutSuppressed` (`{stepIdx: n}`) and `TraceabilityFlow.vue` shows a notice telling the user to make that step the Master Axis for full rows. Guarded by `useCombinedRows.test.mjs`.
+- Hard cap `MAX_COMBINED_ROWS = 100000` → `combinedTruncated` flag.
+
+### Excel Export
+
+Default format is **`.xlsx`**; `openExportDialog` auto-switches to **CSV above 100k rows**. `.xlsb` is ~25x slower to generate in SheetJS CE (main-thread freeze) and is labelled "Slow" — don't re-promote it as the large-data option.
 
 ## Planned Features
 
@@ -184,21 +199,12 @@ Pivot uses single-column WHERE (`targetCol IN (...values)`). Some joins need com
 
 ## Recent Changes
 
-### 2026-09-03: BFS Optimization for Multi-Step Seeds (commit `8c0534f`)
-- **Performance:** 2.5-10x faster for endpoints with multi-step seeds (e.g. `?receiveDate=X&S3_AREA_CODE=Y`)
-- **Impact:** Automatic — all existing and future endpoints benefit without config changes
-- **Deploy:** Backend only — `git pull` + `docker compose restart` (volume mount, no rebuild needed)
-- **Files changed:** `backend/src/services/endpointService.ts` (lines 804-923)
+Details live in the sections above; this is just the timeline.
 
-### 2026-09-01: Operator Suffix + Unknown Param Rejection
-- **Feature:** `__gte`, `__lte`, `__between`, `__in`, `__eq`, `__like` suffixes on trace params
-- **Breaking:** Unknown params now return 400 (previously silently ignored → unfiltered data)
-- **Files changed:** `backend/src/services/endpointService.ts`, `backend/src/index.ts`
-
-### 2026-07-22: Query Param Override Behavior Fix (commits `6a2c649`+`fbede05`)
-- **Fix:** Params now override matching rootConditions; non-overridden conditions skipped when params present
-- **Before:** `?lotCoil=X` on endpoint with `ptNo=...` seed → AND both (0 rows)
-- **After:** `?lotCoil=X` → search by lotCoil only (correct results)
+- **2026-09-10 — production go-live:** `SeagateDev` pointed at prod `sghu-db01` (hardcoded, see MySQL Pools tech debt); `deploy_to_intn6/` package added; LoginPanel test-account hint removed; combined view `S{N}_` prefix + sibling cartesian prevention; export default `.xlsx`.
+- **2026-09-03:** BFS multi-step seed optimization (`8c0534f`).
+- **2026-09-01:** trace param `__op` suffixes; unknown params → 400 (breaking).
+- **2026-07-22:** query params override matching rootConditions (`6a2c649`+`fbede05`).
 
 ## Behavior Rules
 - **Verify Before Action:** Always read the relevant files and search the codebase before making any edits or writing new code.
@@ -232,6 +238,8 @@ npm run build
 - `/etc/httpd/conf/ssl.crt:/etc/httpd/conf/ssl.crt:ro` — SSL certs
 
 **Downtime:** ~5-10s (docker restart), frontend zero downtime (static files)
+
+**intn6 box:** copy `deploy_to_intn6/` contents into the prod `backend/` path and `docker compose down && build && up -d` — runbook in `deploy_to_intn6/README.md`.
 
 ## Reference Docs
 
