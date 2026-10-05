@@ -34,6 +34,7 @@
             <div class="item-header">
               <span class="item-name">{{ c.id }}</span>
               <span class="item-actions">
+                <span v-if="c.type === 'oracle'" class="badge oracle">ORACLE</span>
                 <span v-if="c.isStatic" class="badge static">SYSTEM</span>
                 <span v-else :class="['badge', c.isActive ? 'dynamic' : 'static']">{{ c.isActive ? 'ACTIVE' : 'OFF' }}</span>
               </span>
@@ -63,6 +64,12 @@
           </div>
 
           <div class="form-row">
+            <el-form-item label="Database Type" class="form-col" style="max-width: 200px;">
+              <el-select v-model="connForm.type" :disabled="connMode === 'static'" @change="onConnTypeChange" style="width: 100%;">
+                <el-option label="MySQL" value="mysql" />
+                <el-option label="Oracle" value="oracle" />
+              </el-select>
+            </el-form-item>
             <el-form-item label="Host" required class="form-col">
               <el-input v-model="connForm.host" placeholder="e.g. vendor-db01.th.belton.corp" :disabled="connMode === 'static'" />
             </el-form-item>
@@ -88,7 +95,11 @@
           </div>
 
           <div class="form-row">
-            <el-form-item label="Default Database (เว้นว่าง = ระบุชื่อ DB ใน SQL ได้อิสระ)" class="form-col">
+            <el-form-item v-if="connForm.type === 'oracle'" label="SID" required class="form-col">
+              <el-input v-model="connForm.dbName" placeholder="e.g. PROD" :disabled="connMode === 'static'" />
+              <span class="input-hint">แท็บ Tables ระบุตารางเป็น OWNER.TABLE (เช่น APPS.MTL_SYSTEM_ITEMS_B) หรือชื่อเดี่ยว = schema ของ user / synonym</span>
+            </el-form-item>
+            <el-form-item v-else label="Default Database (เว้นว่าง = ระบุชื่อ DB ใน SQL ได้อิสระ)" class="form-col">
               <el-input v-model="connForm.dbName" placeholder="e.g. WIP" :disabled="connMode === 'static'" />
             </el-form-item>
             <el-form-item label="สถานะ" class="form-col" style="max-width: 180px;">
@@ -232,6 +243,9 @@
               </el-checkbox>
               <p class="section-desc-hint">
                 Enable this if you need custom filters, cross-DB query syntax, hardcoded parameters, or joins.
+              </p>
+              <p v-if="isOracleTarget" class="section-desc-hint" style="color: var(--c-warning);">
+                Oracle: ใช้ Test Query ทดสอบ SQL ได้ (ใส่ ? เป็น bind) แต่ยังบันทึกเป็น Custom SQL table ไม่ได้
               </p>
             </div>
 
@@ -620,10 +634,13 @@ const connMode = ref(''); // '' | 'create' | 'edit' | 'static'
 const savingConn = ref(false);
 const testingConn = ref(false);
 const connTestTookMs = ref(0);
-const connForm = ref({ id: '', label: '', host: '', port: 3306, user: '', password: '', dbName: '', isActive: true });
+const DEFAULT_PORTS = { mysql: 3306, oracle: 1521 };
+const connForm = ref({ id: '', label: '', type: 'mysql', host: '', port: 3306, user: '', password: '', dbName: '', isActive: true });
 
 const staticConnOptions = computed(() => connectionsList.value.filter(c => c.isStatic));
 const customConnOptions = computed(() => connectionsList.value.filter(c => !c.isStatic));
+// ponytail: computed ก่อน form ถูกประกาศได้ — Vue ประเมิน lazy ตอน render
+const isOracleTarget = computed(() => connectionsList.value.find(c => c.id === form.value.connectionKey)?.type === 'oracle');
 
 // Form configurations
 const form = ref({
@@ -807,7 +824,14 @@ async function loadConnections() {
 }
 
 function freshConnForm() {
-  return { id: '', label: '', host: '', port: 3306, user: '', password: '', dbName: '', isActive: true };
+  return { id: '', label: '', type: 'mysql', host: '', port: 3306, user: '', password: '', dbName: '', isActive: true };
+}
+
+// สลับ port default ตาม type — ถ้าผู้ใช้แก้ port เองแล้วไม่ทับ
+function onConnTypeChange(type) {
+  if (Object.values(DEFAULT_PORTS).includes(connForm.value.port)) {
+    connForm.value.port = DEFAULT_PORTS[type];
+  }
 }
 
 function startNewConnection() {
@@ -824,8 +848,9 @@ function selectConnection(c) {
   connForm.value = {
     id: c.id,
     label: c.label,
+    type: c.type || 'mysql',
     host: c.host || '',
-    port: c.port || 3306,
+    port: c.port || DEFAULT_PORTS[c.type || 'mysql'],
     user: c.user || '',
     password: '', // ห้าม pre-fill — เว้นว่าง = คงรหัสเดิม
     dbName: c.dbName || '',
@@ -869,14 +894,16 @@ async function saveConnection() {
   if (!f.host) return ElMessage.warning('กรุณาระบุ Host');
   if (!f.user) return ElMessage.warning('กรุณาระบุ User');
   if (connMode.value === 'create' && !f.password) return ElMessage.warning('กรุณาระบุ Password');
+  if (f.type === 'oracle' && !f.dbName) return ElMessage.warning('Oracle ต้องระบุ SID');
 
   savingConn.value = true;
   try {
     const isNew = connMode.value === 'create';
     const body = {
       label: f.label || f.id,
+      type: f.type || 'mysql',
       host: f.host,
-      port: f.port || 3306,
+      port: f.port || DEFAULT_PORTS[f.type || 'mysql'],
       user: f.user,
       password: f.password || '',
       dbName: f.dbName || null,
@@ -1105,7 +1132,10 @@ async function testRawQuery() {
       headers: getAuthHeaders(), // admin-only route — ต้องแนบ x-user-en
       body: JSON.stringify({
         connectionKey: form.value.connectionKey,
-        sql: form.value.customSqlStr.replace(/`\??col`/gi, '`1`').replace(/\??col\b/gi, '`1`'), // safe test replacing column template literally
+        // safe test replacing column template literally — Oracle ไม่มี backtick → ส่ง SQL ตรงๆ
+        sql: isOracleTarget.value
+          ? form.value.customSqlStr
+          : form.value.customSqlStr.replace(/`\??col`/gi, '`1`').replace(/\??col\b/gi, '`1`'),
         params: params,
       })
     });
@@ -1190,6 +1220,11 @@ async function saveTableConfig() {
   }
   if (form.value.columns.length === 0) {
     ElMessage.warning('Please configure at least one column (run Auto-Detect first).');
+    return;
+  }
+  // ตรงกับ backend guard — Oracle ทดสอบ SQL ได้ แต่ยังบันทึกเป็น Custom SQL table ไม่ได้
+  if (isOracleTarget.value && form.value.useCustomSql) {
+    ElMessage.error('Custom SQL ยังไม่รองรับ Oracle — ปิด Custom SQL แล้วใช้ตารางแบบปกติ (Test Query ใช้ทดสอบได้)');
     return;
   }
 
@@ -1474,6 +1509,12 @@ function confirmDelete(item) {
 .badge.dynamic {
   color: #3b82f6;
   background: #eff6ff;
+}
+
+.badge.oracle {
+  color: #c2410c;
+  background: #fff7ed;
+  margin-right: 4px;
 }
 
 .item-label {
