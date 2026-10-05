@@ -1,7 +1,7 @@
-import { dbSeagateDev, getRawPool, resolveConnConfig } from "../db/client";
+import { dbSeagateDev, getRawPool, resolveConnConfig, isOracleConn } from "../db/client";
 import { registryTables, registryUsers } from "../db/schema";
 import { eq, sql, inArray } from "drizzle-orm";
-import { TABLE_REGISTRY, TableMeta, ColumnMeta, CustomSqlConfig, setDynamicRegistry, quoteTableRef } from "../config/tableRegistry";
+import { TABLE_REGISTRY, TableMeta, ColumnMeta, CustomSqlConfig, setDynamicRegistry, quoteTableRef, limitSql } from "../config/tableRegistry";
 
 export interface DynamicTableRow {
   id: string;
@@ -406,6 +406,25 @@ export class RegistryService {
     const partRegex = /^[A-Za-z0-9_]{1,100}$/;
     let showColumnsTarget: string;
 
+    // Oracle: ไม่มี SHOW COLUMNS — SELECT 0 แถวแล้วอ่านชื่อคอลัมน์จาก metaData
+    // ใช้ได้ทั้ง table / view / synonym (EBS APPS เป็น synonym ซึ่ง ALL_TAB_COLUMNS มองไม่เห็น)
+    // ชื่อไม่ระบุ OWNER = schema ของ user ที่ login (หรือ public synonym)
+    if (isOracleConn(connKey)) {
+      const parts = tableName.split(".");
+      if (parts.length > 2 || !parts.every(p => partRegex.test(p))) {
+        throw new Error("ชื่อตารางไม่ถูกต้อง (รองรับเฉพาะ A-Z, a-z, 0-9, _ และรูปแบบ OWNER.TABLE)");
+      }
+      const [, meta] = await getRawPool(connKey).execute(
+        `SELECT * FROM ${quoteTableRef(tableName, true)} WHERE ROWNUM < 1`
+      ) as any[];
+      return (meta as Array<{ name: string }>).map(m => ({
+        dbColumn: m.name,
+        label: m.name,
+        searchable: m.name.toLowerCase() !== "id",
+        linksTo: [],
+      }));
+    }
+
     if (tableName.includes(".")) {
       const [dbPart, tblPart] = tableName.split(".", 2);
       if (!partRegex.test(dbPart) || !partRegex.test(tblPart)) {
@@ -465,8 +484,13 @@ export class RegistryService {
     }
 
     // Safety wrapping: wrap query inside subquery or append LIMIT 5
+    // Oracle: ห่อ ROWNUM เสมอ (ไม่มี LIMIT, ห้ามมี AS หน้า table alias)
     let safetySql = trimmedSql;
-    if (!trimmedSql.toLowerCase().includes("limit")) {
+    if (isOracleConn(connKey)) {
+      safetySql = limitSql(trimmedSql, 5, true);
+      // ส่ง bind เท่าจำนวน "?" จริง — Oracle error ถ้า bind เกิน (ORA-01036) ต่างจาก mysql2
+      params = params.slice(0, (trimmedSql.match(/\?/g) || []).length);
+    } else if (!trimmedSql.toLowerCase().includes("limit")) {
       safetySql = `${trimmedSql} LIMIT 5`;
     } else {
       // Force limit override to max 5

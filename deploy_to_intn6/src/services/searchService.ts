@@ -1,8 +1,9 @@
-import { db, dbACA, dbBitintra, getDb, getRawPool, resolveConnConfig } from "../db/client";
+import { db, dbACA, dbBitintra, getDb, getRawPool, resolveConnConfig, isOracleConn } from "../db/client";
 import { sql } from "drizzle-orm";
-import { getTableMeta, getTableMetaForConnection, TABLE_REGISTRY, TableMeta, buildSelectClause, mapRowToLabels, quoteTableRef, quoteColumnRef } from "../config/tableRegistry";
+import { getTableMeta, getTableMetaForConnection, TABLE_REGISTRY, TableMeta, buildSelectClause, mapRowToLabels, quoteTableRef, quoteColumnRef, limitSql } from "../config/tableRegistry";
 
 import { BATCH_SIZE } from "../config/appConfig";
+import { ORACLE_CUSTOM_SQL_UNSUPPORTED } from "../db/oracle";
 
 function formatParams(params: any[]): string {
   if (!params) return "[]";
@@ -313,6 +314,7 @@ export class SearchService {
     const { table, limit = 1000000 } = params;
     const customSql = tableMeta.customSql!;
     const connKey = customSql.connectionKey;
+    if (isOracleConn(connKey)) throw new Error(ORACLE_CUSTOM_SQL_UNSUPPORTED);
     const rawPool = getRawPool(connKey);
 
     const executedQueries: { sql: string; params: any[] }[] = [];
@@ -900,6 +902,9 @@ export class SearchService {
     );
     if (!exactKey) throw new Error(`Column "${column}" not found in table "${table}"`);
 
+    if (isOracleConn(tableMeta.connectionKey) || isOracleConn(tableMeta.customSql?.connectionKey)) {
+      throw new Error("Distinct / autocomplete ยังไม่รองรับตาราง Oracle — พิมพ์ค่าค้นหาเองได้ (Search/Pivot ใช้ได้ปกติ)");
+    }
     const colMeta = tableMeta.columns[exactKey];
     const dbTable = tableMeta.dbTable || tableMeta.tableName;
     const dbCol = colMeta.dbColumn;
@@ -1008,6 +1013,9 @@ export class SearchService {
     const { table } = params;
     const rawPool = getRawPool(connKey as any);
     const dbTable = tableMeta.dbTable || tableMeta.tableName; // e.g. "ACA_BONDING_DATA" หรือ "BIT.X"
+    const ora = isOracleConn(connKey);
+    // Oracle IN list สูงสุด 1000 ค่า (ORA-01795)
+    const batchSize = ora ? Math.min(BATCH_SIZE, 1000) : BATCH_SIZE;
 
     // Build WHERE clause from conditionsList using plain SQL string (no Drizzle)
     let resultRows: Record<string, any>[] = [];
@@ -1023,12 +1031,10 @@ export class SearchService {
       if (uniqueValues.length === 0) throw new Error("ไม่มีค่าสำหรับ IN query");
 
       const colMetaIn = tableMeta.columns[inCondition.column];
-      const dbColIn = colMetaIn.dbColumn.includes(".")
-        ? colMetaIn.dbColumn.split(".").map(part => `\`${part.trim()}\``).join(".")
-        : `\`${colMetaIn.dbColumn}\``;
+      const dbColIn = quoteColumnRef(colMetaIn.dbColumn, ora);
 
-      for (let i = 0; i < uniqueValues.length; i += BATCH_SIZE) {
-        const batch = uniqueValues.slice(i, i + BATCH_SIZE);
+      for (let i = 0; i < uniqueValues.length; i += batchSize) {
+        const batch = uniqueValues.slice(i, i + batchSize);
         const whereParts: string[] = [];
         const sqlParams: any[] = [];
 
@@ -1042,9 +1048,7 @@ export class SearchService {
           if (cond === inCondition) continue;
           const colMeta = tableMeta.columns[cond.column];
           if (!colMeta) continue;
-          const dbCol = colMeta.dbColumn.includes(".")
-            ? colMeta.dbColumn.split(".").map(part => `\`${part.trim()}\``).join(".")
-            : `\`${colMeta.dbColumn}\``;
+          const dbCol = quoteColumnRef(colMeta.dbColumn, ora);
 
           if (cond.operator === "like" && cond.value) {
             whereParts.push(`${dbCol} LIKE ?`);
@@ -1075,13 +1079,13 @@ export class SearchService {
         }
 
         const whereClause = whereParts.join(" AND ");
-        const rawSql = `SELECT * FROM ${quoteTableRef(dbTable)} WHERE ${whereClause} LIMIT ${limit}`;
+        const rawSql = limitSql(`SELECT * FROM ${quoteTableRef(dbTable, ora)} WHERE ${whereClause}`, limit, ora);
 
         if (i === 0) {
           executedQueries.push({ sql: rawSql, params: sqlParams });
         }
 
-        console.log(`\n\x1b[36m╔══════════ [SQL Debug - RawPool Search (${connKey}) Batch ${Math.floor(i / BATCH_SIZE) + 1}] ══════════\x1b[0m`);
+        console.log(`\n\x1b[36m╔══════════ [SQL Debug - RawPool Search (${connKey}${ora ? ", oracle" : ""}) Batch ${Math.floor(i / batchSize) + 1}] ══════════\x1b[0m`);
         console.log(`\x1b[36m║\x1b[0m \x1b[1mDatabase:\x1b[0m ${connKey}`);
         console.log(`\x1b[36m║\x1b[0m \x1b[1mHost:\x1b[0m     ${resolveConnConfig(connKey)?.host ?? "(unknown)"}`);
         console.log(`\x1b[36m║\x1b[0m \x1b[1mTable:\x1b[0m    ${dbTable}`);
@@ -1102,9 +1106,7 @@ export class SearchService {
       for (const cond of conditionsList) {
         const colMeta = tableMeta.columns[cond.column];
         if (!colMeta) continue;
-        const dbCol = colMeta.dbColumn.includes(".")
-          ? colMeta.dbColumn.split(".").map(part => `\`${part.trim()}\``).join(".")
-          : `\`${colMeta.dbColumn}\``;
+        const dbCol = quoteColumnRef(colMeta.dbColumn, ora);
 
         if (cond.operator === "like" && cond.value) {
           whereParts.push(`${dbCol} LIKE ?`);
@@ -1125,9 +1127,9 @@ export class SearchService {
       }
 
       const whereClause = whereParts.length > 0 ? whereParts.join(" AND ") : "1=1";
-      const rawSql = `SELECT * FROM ${quoteTableRef(dbTable)} WHERE ${whereClause} LIMIT ${limit}`;
+      const rawSql = limitSql(`SELECT * FROM ${quoteTableRef(dbTable, ora)} WHERE ${whereClause}`, limit, ora);
 
-      console.log(`\n\x1b[36m╔══════════ [SQL Debug - RawPool Search (${connKey})] ══════════\x1b[0m`);
+      console.log(`\n\x1b[36m╔══════════ [SQL Debug - RawPool Search (${connKey}${ora ? ", oracle" : ""})] ══════════\x1b[0m`);
       console.log(`\x1b[36m║\x1b[0m \x1b[1mDatabase:\x1b[0m ${connKey}`);
       console.log(`\x1b[36m║\x1b[0m \x1b[1mHost:\x1b[0m     ${resolveConnConfig(connKey)?.host ?? "(unknown)"}`);
       console.log(`\x1b[36m║\x1b[0m \x1b[1mTable:\x1b[0m    ${dbTable}`);

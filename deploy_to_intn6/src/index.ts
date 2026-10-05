@@ -482,6 +482,7 @@ const apiRoutes = new Elysia()
       user: t.String({ minLength: 1 }),
       password: t.String({ minLength: 1 }),
       dbName: t.Optional(t.Union([t.String(), t.Null()])),
+      type: t.Optional(t.Union([t.Literal("mysql"), t.Literal("oracle")])),
       isActive: t.Optional(t.Boolean()),
     })
   })
@@ -508,6 +509,7 @@ const apiRoutes = new Elysia()
       user: t.Optional(t.String({ minLength: 1 })),
       password: t.Optional(t.String()),
       dbName: t.Optional(t.Union([t.String(), t.Null()])),
+      type: t.Optional(t.Union([t.Literal("mysql"), t.Literal("oracle")])),
       isActive: t.Optional(t.Boolean()),
     })
   })

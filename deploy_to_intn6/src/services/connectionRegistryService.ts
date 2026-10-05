@@ -1,4 +1,4 @@
-import { dbSeagateDev, getRawPool, CONNECTION_CONFIGS, resolveConnConfig, setDynamicConnections, closePool } from "../db/client";
+import { dbSeagateDev, getRawPool, CONNECTION_CONFIGS, resolveConnConfig, setDynamicConnections, closePool, type DbType } from "../db/client";
 import { registryConnections, registryTables } from "../db/schema";
 import { eq, sql } from "drizzle-orm";
 
@@ -8,6 +8,7 @@ export interface ConnectionRow {
   host: string;
   port: number;
   dbName: string | null;
+  type: DbType;
   isActive: boolean;
   hasPassword: boolean;
   isStatic: boolean;
@@ -44,8 +45,12 @@ export interface ConnectionInput {
   user?: string;
   password?: string;
   dbName?: string | null;
+  type?: DbType;
   isActive?: boolean;
 }
+
+const DB_TYPES: readonly DbType[] = ["mysql", "oracle"];
+const DEFAULT_PORT: Record<DbType, number> = { mysql: 3306, oracle: 1521 };
 
 export class ConnectionRegistryService {
   /**
@@ -67,6 +72,15 @@ export class ConnectionRegistryService {
           updated_at VARCHAR(50) NOT NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8
       `);
+      // Migration: db_type (mysql|oracle) — MySQL 5.0 ไม่มี ADD COLUMN IF NOT EXISTS → กลืน duplicate error
+      try {
+        await dbSeagateDev.execute(sql.raw(`ALTER TABLE registry_connections ADD COLUMN db_type VARCHAR(10) NOT NULL DEFAULT 'mysql'`));
+        console.log("🔧 Added 'db_type' column to registry_connections (Oracle support).");
+      } catch (e: any) {
+        if (!/duplicate column|1060/i.test(e?.message || "")) {
+          console.warn("⚠️ Could not add 'db_type' column:", e?.message || e);
+        }
+      }
       console.log("✅ MySQL database (SeagateDev): checked/created 'registry_connections' table.");
     } catch (err: any) {
       console.error("❌ Failed to ensure 'registry_connections' table:", err.message);
@@ -89,6 +103,7 @@ export class ConnectionRegistryService {
       user: r.user,
       password: r.password,
       dbName: r.dbName,
+      type: (r.dbType as DbType) || "mysql",
     })));
     console.log(`⚡ Hot-loaded ${rows.length} dynamic connection(s) into connection registry.`);
   }
@@ -110,6 +125,7 @@ export class ConnectionRegistryService {
       host: "",
       port: 0,
       dbName: null,
+      type: "mysql" as DbType,
       isActive: true,
       hasPassword: true,
       isStatic: true,
@@ -120,6 +136,7 @@ export class ConnectionRegistryService {
       host: r.host,
       port: r.port,
       dbName: r.dbName,
+      type: (r.dbType as DbType) || "mysql",
       isActive: r.isActive === 1,
       hasPassword: true,
       isStatic: false,
@@ -174,6 +191,13 @@ export class ConnectionRegistryService {
     if (input.dbName !== undefined && input.dbName !== null && input.dbName.length > 100) {
       throw new Error("Database name ยาวไม่เกิน 100 ตัวอักษร");
     }
+    if (input.type !== undefined && !DB_TYPES.includes(input.type)) {
+      throw new Error(`Type ต้องเป็น ${DB_TYPES.join(" หรือ ")}`);
+    }
+    // Oracle ต่อด้วย SID → บังคับกรอก (ไม่มี "default database" แบบ MySQL)
+    if (!isUpdate && input.type === "oracle" && !input.dbName?.trim()) {
+      throw new Error("Oracle ต้องระบุ SID");
+    }
   }
 
   async create(input: ConnectionInput): Promise<void> {
@@ -191,10 +215,11 @@ export class ConnectionRegistryService {
       id: input.id!,
       label: input.label?.trim() || input.id!,
       host: input.host!,
-      port: input.port ?? 3306,
+      port: input.port ?? DEFAULT_PORT[input.type ?? "mysql"],
       user: input.user!,
       password: input.password!,
       dbName: input.dbName?.trim() || null,
+      dbType: input.type ?? "mysql",
       isActive: input.isActive === false ? 0 : 1,
       createdAt: now,
       updatedAt: now,
@@ -218,6 +243,7 @@ export class ConnectionRegistryService {
       port: input.port ?? rows[0].port,
       user: input.user ?? rows[0].user,
       dbName: input.dbName !== undefined ? (input.dbName?.trim() || null) : rows[0].dbName,
+      dbType: input.type ?? rows[0].dbType,
       isActive: input.isActive === undefined ? rows[0].isActive : (input.isActive ? 1 : 0),
       updatedAt: new Date().toISOString(),
     };
@@ -250,15 +276,16 @@ export class ConnectionRegistryService {
   }
 
   /**
-   * ทดสอบ connection ด้วย SELECT 1 — สร้าง pool จริงถ้ายังไม่มี
+   * ทดสอบ connection ด้วย SELECT 1 (Oracle: FROM DUAL) — สร้าง pool จริงถ้ายังไม่มี
    */
   async testConnection(id: string): Promise<{ tookMs: number }> {
-    if (!resolveConnConfig(id)) {
+    const cfg = resolveConnConfig(id);
+    if (!cfg) {
       throw new Error(`ไม่พบ Connection "${id}" ในระบบ`);
     }
     const start = Date.now();
     const pool = getRawPool(id);
-    await pool.query("SELECT 1");
+    await pool.query(cfg.type === "oracle" ? "SELECT 1 FROM DUAL" : "SELECT 1");
     return { tookMs: Date.now() - start };
   }
 }

@@ -701,18 +701,27 @@ export function buildSelectClause(tableMeta: TableMeta): string {
 // จำเป็นสำหรับ connection ที่ไม่ตั้ง Default Database (เช่น Bitintra, HITACHI)
 // กัน injection: ห้ามมี backtick ในแต่ละส่วน (validate ที่ validateInput แล้ว แต่กันเองอีกชั้น)
 // ============================================================
-export function quoteTableRef(name: string): string {
+// oracle=true → "OWNER"."TABLE" (double quote + uppercase — กัน reserved word เช่น DATE/LEVEL)
+// ponytail: uppercase ทุกส่วน → mixed-case quoted identifier ของ Oracle ใช้ไม่ได้ (EBS ไม่มี); ต้องการค่อยเพิ่ม flag ต่อ table
+export function quoteTableRef(name: string, oracle = false): string {
   return name
     .split(".")
-    .map(part => `\`${part.replace(/`/g, "").trim()}\``)
+    .map(part => oracle
+      ? `"${part.replace(/"/g, "").trim().toUpperCase()}"`
+      : `\`${part.replace(/`/g, "").trim()}\``)
     .join(".");
 }
 
 // HELPER: เช่นเดียวกับ quoteTableRef แต่สำหรับชื่อคอลัมน์ — รองรับ "col" และ
 // "alias.col" (dbColumn แบบ dot-notation สำหรับตารางที่ประกอบจาก JOIN หลายตาราง
 // ซึ่งมีชื่อฟิลด์ซ้ำกัน เช่น pd.pt_no) — ป้องกัน "Column 'x' is ambiguous"
-export function quoteColumnRef(name: string): string {
-  return quoteTableRef(name);
+export function quoteColumnRef(name: string, oracle = false): string {
+  return quoteTableRef(name, oracle);
+}
+
+// HELPER: จำกัดจำนวนแถว — MySQL "LIMIT n" / Oracle ห่อ ROWNUM (ใช้ได้ทุกเวอร์ชัน 11g+ ไม่ต้องพึ่ง FETCH FIRST ของ 12c)
+export function limitSql(sql: string, n: number, oracle = false): string {
+  return oracle ? `SELECT * FROM (${sql}) WHERE ROWNUM <= ${n}` : `${sql} LIMIT ${n}`;
 }
 
 // ============================================================

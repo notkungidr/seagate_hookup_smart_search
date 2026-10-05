@@ -1,8 +1,9 @@
-import { db, dbBitintra, getDb, getRawPool, resolveConnConfig } from "../db/client";
+import { db, dbBitintra, getDb, getRawPool, resolveConnConfig, isOracleConn } from "../db/client";
 import { sql } from "drizzle-orm";
 import { getTableMeta, getTableMetaForConnection, TABLE_REGISTRY, getDynamicRegistry, TableMeta, buildSelectClause, mapRowToLabels, quoteTableRef, quoteColumnRef } from "../config/tableRegistry";
 
 import { BATCH_SIZE } from "../config/appConfig";
+import { ORACLE_CUSTOM_SQL_UNSUPPORTED } from "../db/oracle";
 
 function formatParams(params: any[]): string {
   if (!params) return "[]";
@@ -197,6 +198,7 @@ export class PivotService {
     const { sourceValues, targetTable, targetColumn, limit = 1000000 } = params;
     const customSql = tableMeta.customSql!;
     const connKey = customSql.connectionKey;
+    if (isOracleConn(connKey)) throw new Error(ORACLE_CUSTOM_SQL_UNSUPPORTED);
     const queryDb = getDb(connKey);
 
     // Resolve dbColumn key
@@ -481,17 +483,18 @@ export class PivotService {
     const dbTable = tableMeta.dbTable || tableMeta.tableName;
     const allRows: Record<string, any>[] = [];
     const executedQueries: { sql: string; params: any[] }[] = [];
+    const ora = isOracleConn(connKey);
+    // Oracle IN list สูงสุด 1000 ค่า (ORA-01795)
+    const batchSize = ora ? Math.min(BATCH_SIZE, 1000) : BATCH_SIZE;
 
-    // Batch IN queries (1000 per batch, MySQL 5 safe)
-    for (let i = 0; i < uniqueValues.length; i += BATCH_SIZE) {
-      const batch = uniqueValues.slice(i, i + BATCH_SIZE);
+    // Batch IN queries
+    for (let i = 0; i < uniqueValues.length; i += batchSize) {
+      const batch = uniqueValues.slice(i, i + batchSize);
       const placeholders = batch.map(() => "?").join(", ");
-      const escapedCol = dbCol.includes(".")
-        ? dbCol.split(".").map(part => `\`${part.trim()}\``).join(".")
-        : `\`${dbCol}\``;
-      const rawSql = `SELECT * FROM ${quoteTableRef(dbTable)} WHERE ${escapedCol} IN (${placeholders})`;
+      const escapedCol = quoteColumnRef(dbCol, ora);
+      const rawSql = `SELECT * FROM ${quoteTableRef(dbTable, ora)} WHERE ${escapedCol} IN (${placeholders})`;
 
-      console.log(`\n\x1b[36m╔══════════ [SQL Debug - RawPool Pivot (${connKey}) Batch ${Math.floor(i / BATCH_SIZE) + 1}] ══════════\x1b[0m`);
+      console.log(`\n\x1b[36m╔══════════ [SQL Debug - RawPool Pivot (${connKey}${ora ? ", oracle" : ""}) Batch ${Math.floor(i / batchSize) + 1}] ══════════\x1b[0m`);
       console.log(`\x1b[36m║\x1b[0m \x1b[1mConnection :\x1b[0m ${connKey}`);
       console.log(`\x1b[36m║\x1b[0m \x1b[1mHost:\x1b[0m       ${resolveConnConfig(connKey)?.host ?? "(unknown)"}`);
       console.log(`\x1b[36m║\x1b[0m \x1b[1mDatabase:\x1b[0m ${connKey}`);
