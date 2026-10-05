@@ -23,6 +23,8 @@ Seagate Hookup Smart Search — production traceability tool for the Seagate ACA
 - `npm run build` / `npm run preview`
 - `node src/composables/useCombinedRows.test.mjs` — assert-based self-check for combined-view sibling-branch fan-out (no test runner)
 
+**Oracle probe:** `cd backend && bun --env-file=D:\pr_online_budget_report_new\budget-report-backend\.env run src/check_oracle_e2e.ts` — runs real Search/Pivot/Registry code against EBS in-memory (read-only SELECTs on `DUAL`, no registry writes). Reuses budget-report's `.env` so EBS creds never live in this repo. Needs Instant Client at `C:\oracle` on Windows.
+
 **No lint or formatter** — `backend/src/check_*.ts` and `simulate_run.ts` are ad-hoc probes (`bun run <file>`), not a test harness.
 
 **`deploy_to_intn6/`** — hand-copied backend snapshot for the intn6 prod box (tests/probes stripped, own `README.md`). Currently byte-identical to `backend/` for `src/**`, Dockerfile, compose, package.json. It is **not** generated: edit `backend/` first, then re-copy changed files into `deploy_to_intn6/` or the two drift.
@@ -74,6 +76,7 @@ Tech debt: some entries hardcode host/user/password instead of reading `.env` �
 - **STATIC WINS, always:** `resolveConnConfig(key)` checks `CONNECTION_CONFIGS` first — dynamic rows can never shadow/hijack the 16 code-defined connections (and their eager exports `db`, `dbACA`, `dbSeagateDev`, ...). Never flip this order.
 - Password is stored plaintext (accepted, same exposure class as `.env`) but **never returned by any API** — `list()` returns `hasPassword: true` only; blank password on PUT = keep existing; frontend never pre-fills the field.
 - Delete refuses while any `registry_tables.connectionKey` still references the connection (frontend surfaces the refusal).
+- **Oracle connections:** `registry_connections.db_type` = `mysql` (default) | `oracle`; for Oracle `db_name` holds the **SID** (port default 1521). Static connections are always MySQL. See Oracle Support below.
 - Cross-instance sync: `loadAndApply()` runs at startup (before `reloadDynamicRegistry`), after every mutation, on `POST /registry/reload`, and piggybacks on `GET /tables` — but only the **config map** syncs; other instances keep stale pools until they restart or their own closePool fires.
 
 ### Hard Constraints (MySQL 5.0.0)
@@ -81,6 +84,18 @@ Tech debt: some entries hardcode host/user/password instead of reading `.env` �
 - **Batch all `IN (...)` queries.** Backend `BATCH_SIZE = 5000` (`backend/src/config/appConfig.ts`); frontend chain executor caps every `/api/pivot` call at `PIVOT_BATCH_SIZE = 100` per request as defense-in-depth. Don't change either without aligning both layers and confirming with user.
 - No window functions, no CTEs, no modern JSON. Keep queries simple.
 - Table-name case must match physically: `SCAN1_DISPENSING`, `BONDING_FIXTURE`, `BONDING_FIXTURE_BEARING`, `BAKING` are UPPERCASE; `scan1`, `scan1_map_aca_lot_bracket_lot`, `scan21`, `soldering`, `soldering_laser` are lowercase.
+
+### Oracle Support (`backend/src/db/oracle.ts`)
+
+Scope: **Search, Pivot, Registry preview-columns / test-query, connection test.** Oracle tables go through the existing raw-pool path (`_searchWithRawPool`, `_pivotWithRawPool`) — `getRawPool(key)` returns an adapter with the same `execute(sql, params) → [rows, metaData]` shape as mysql2, so callers need no separate code path. `getDb(key)` (Drizzle) **throws** for Oracle by design.
+
+- **Thick mode is mandatory for EBS** — the account uses the old 0x939 password verifier, so thin mode fails with `NJS-116`. Thick turns on when `ORACLE_INSTANT_CLIENT_PATH` is set (same env name as budget-report): Docker sets it in the Dockerfile; Windows dev uses `C:\oracle`. `initOracleClient` is process-wide and runs once, on the first Oracle pool.
+- Verified on Bun 1.3.6 + oracledb **6.10.0** (pinned) + Instant Client against EBS 19c `erpdb.belton.corp:1538`, SID `ebs_PRD`.
+- Dialect: `quoteTableRef/quoteColumnRef(name, oracle)` → `"OWNER"."TABLE"` (uppercased — mixed-case quoted Oracle identifiers unsupported); `limitSql(sql, n, oracle)` → `ROWNUM` wrap (works 11g+); adapter rewrites `?` → `:1, :2…`. Oracle IN batches cap at **1000** (ORA-01795) regardless of `BATCH_SIZE`.
+- DATE/TIMESTAMP come back as `"YYYY-MM-DD HH24:MI:SS"` strings (session NLS + `fetchAsString`) — matches mysql2 `dateStrings: true`, which `dateTime.js` and `filterCombinedRows` depend on.
+- `previewColumns` on Oracle reads column names from `SELECT * … WHERE ROWNUM < 1` metadata, not `ALL_TAB_COLUMNS` — that's what makes EBS **synonyms** (APPS schema) work. Table name: `TABLE` or `OWNER.TABLE`.
+- **Not supported on Oracle** (throw a Thai error instead of a raw ORA-): `distinct`/autocomplete, and Custom SQL tables (`_searchWithCustomSql`/`_pivotWithCustomSql`). The UI still lets you run Test Query with Oracle SQL but blocks saving a Custom SQL table on an Oracle connection.
+- Trace API untested on Oracle — it delegates to search/pivot so it likely works, but no guarantee.
 
 ### Dead Code
 
@@ -165,7 +180,7 @@ Frontend: Save API dialog in `TraceabilityFlow.vue` sends `x-user-en` from `loca
 `App.vue` is a thin shell; `TraceabilityFlow.vue` imports everything else. Components in `frontend/src/components/`:
 - `TraceabilityFlow.vue` — main search + pivot chain UI (largest component)
 - `LoginPanel.vue` — EN login against `/registry/login` (stores `sg_admin_user` in localStorage)
-- `RegistryManagerDialog.vue` — add/edit dynamic tables (`registry_tables`) with column editor + test-query; **Connections tab** manages `registry_connections` (list + test + CRUD, admin-gated)
+- `RegistryManagerDialog.vue` — add/edit dynamic tables (`registry_tables`) with column editor + test-query; **Connections tab** manages `registry_connections` (list + test + CRUD, admin-gated, Database Type MySQL/Oracle selector with SID field)
 - `UserManagementDialog.vue` — CRUD `registry_users`
 - `QueryTemplatesPanel.vue` — saved-templates sidebar/dialog
 - `ApiManagerDialog.vue` — CRUD UI for `/v1/endpoints`
@@ -238,6 +253,8 @@ npm run build
 - `/etc/httpd/conf/ssl.crt:/etc/httpd/conf/ssl.crt:ro` — SSL certs
 
 **Downtime:** ~5-10s (docker restart), frontend zero downtime (static files)
+
+**When `package.json` or `Dockerfile` changes, `restart` is not enough** — the image must be rebuilt and the anonymous `node_modules` volume renewed, or the container keeps its old deps (e.g. no `oracledb`): `docker compose up -d --build -V`. The image is `oven/bun:1.3.6-debian` + Instant Client 21.14 (Oracle has no alpine/musl client).
 
 **intn6 box:** copy `deploy_to_intn6/` contents into the prod `backend/` path and `docker compose down && build && up -d` — runbook in `deploy_to_intn6/README.md`.
 
