@@ -1,6 +1,7 @@
 import { drizzle } from "drizzle-orm/mysql2";
 import mysql from "mysql2/promise";
 import * as schema from "./schema";
+import { createOracleRawPool } from "./oracle";
 
 const QUERY_TIMEOUT_MS = 120000; // 2 minutes (120 seconds) as requested by user
 
@@ -118,11 +119,13 @@ export type DbKey = keyof typeof CONNECTION_CONFIGS;
 // โหลดจากตาราง registry_connections (SeagateDev) ผ่าน connectionRegistryService
 // กติกา: STATIC ชนะเสมอ — dynamic ห้ามแทน/แก้ connection ที่อยู่ในโค้ด
 // ============================================================
-export type ConnConfig = { host: string; port?: number; user: string; password?: string; database?: string };
+export type DbType = "mysql" | "oracle";
+// Oracle: database = SID. static connections เป็น mysql เสมอ (type undefined)
+export type ConnConfig = { host: string; port?: number; user: string; password?: string; database?: string; type?: DbType };
 const _dynamicConnConfigs = new Map<string, ConnConfig>();
 
 export function setDynamicConnections(
-  list: Array<{ id: string; host: string; port?: number | null; user: string; password: string; dbName?: string | null }>
+  list: Array<{ id: string; host: string; port?: number | null; user: string; password: string; dbName?: string | null; type?: DbType }>
 ): void {
   // ponytail: ปิด pool ของ key ที่ถูกลบ/ปิดใช้งาน — ไม่งั้น instance อื่น (GET /tables sync) จะค้าง pool เก่าตลอดไป
   const nextKeys = new Set(list.map(c => c.id));
@@ -137,12 +140,17 @@ export function setDynamicConnections(
       user: c.user,
       password: c.password,
       database: c.dbName ?? undefined,
+      type: c.type ?? "mysql",
     });
   }
 }
 
 export function resolveConnConfig(key: string): ConnConfig | null {
   return CONNECTION_CONFIGS[key as DbKey] ?? _dynamicConnConfigs.get(key) ?? null;
+}
+
+export function isOracleConn(key: string | undefined | null): boolean {
+  return !!key && resolveConnConfig(key)?.type === "oracle";
 }
 
 /**
@@ -239,6 +247,9 @@ export function getDb(key: string): ReturnType<typeof drizzle> {
   if (!cfg) {
     throw new Error(`ไม่พบ Connection "${key}" ในระบบ (หรือถูกปิดใช้งานอยู่) — แก้ได้ที่ Registry Manager → Connections`);
   }
+  if (cfg.type === "oracle") {
+    throw new Error(`Connection "${key}" เป็น Oracle — ฟีเจอร์นี้รองรับเฉพาะ MySQL (Oracle ใช้ได้กับ Search / Pivot / Registry preview-columns, test-query)`);
+  }
   const poolOptions: mysql.PoolOptions = {
     host: cfg.host,
     port: cfg.port ?? parseInt(process.env.DB_PORT || "3306", 10),
@@ -282,6 +293,15 @@ export function getDb(key: string): ReturnType<typeof drizzle> {
  * ต้องเรียก getDb(key) ก่อนอย่างน้อย 1 ครั้งเพื่อให้ pool ถูกสร้าง
  */
 export function getRawPool(key: string): mysql.Pool {
+  if (_rawPoolCache.has(key)) return _rawPoolCache.get(key)!;
+  const cfg = resolveConnConfig(key);
+  if (cfg?.type === "oracle") {
+    // ponytail: adapter มีแค่ execute/query/end (ทุก caller ใช้แค่นี้) — cast เป็น mysql.Pool ให้ type เดิมของ caller ไม่ต้องแก้
+    const oraclePool = createOracleRawPool(key, cfg, QUERY_TIMEOUT_MS) as unknown as mysql.Pool;
+    console.log(`[DB Pool] init "${key}" (oracle) → host=${cfg.host} user=${cfg.user} sid=${cfg.database ?? "(none)"}`);
+    _rawPoolCache.set(key, oraclePool);
+    return oraclePool;
+  }
   // เรียก getDb เพื่อให้แน่ใจว่า pool ถูกสร้างแล้ว
   getDb(key);
   return _rawPoolCache.get(key)!;

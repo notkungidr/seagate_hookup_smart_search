@@ -269,7 +269,8 @@ export const registryConnections = mysqlTable("registry_connections", {
   port: int("port").notNull().default(3306),
   user: varchar("user", { length: 100 }).notNull(),
   password: varchar("password", { length: 200 }).notNull(),
-  dbName: varchar("db_name", { length: 100 }),
+  dbName: varchar("db_name", { length: 100 }), // Oracle: SID
+  dbType: varchar("db_type", { length: 10 }).notNull().default("mysql"), // 'mysql' | 'oracle'
   isActive: tinyint("is_active").notNull().default(1),
   createdAt: varchar("created_at", { length: 50 }).notNull(),
   updatedAt: varchar("updated_at", { length: 50 }).notNull(),
