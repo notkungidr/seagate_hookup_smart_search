@@ -83,6 +83,9 @@ const TRACE_RESERVED_PARAMS = new Set(["format"]);
  * (e.g. `S4_REQ_DATE_gte` — single underscore) used to return 200 with unfiltered
  * data, which is worse than an error for an API other projects consume.
  */
+// `col__empty` carries no value — keep it even when blank (bare `col: ""` is still dropped)
+const isEmptyOp = (k: string) => /__empty$/i.test(k);
+
 function admitTraceParams(
   incoming: Record<string, string>,
   rootColumns: Set<string>,
@@ -93,7 +96,7 @@ function admitTraceParams(
 
   for (const [paramName, paramValue] of Object.entries(incoming)) {
     if (TRACE_RESERVED_PARAMS.has(paramName.toLowerCase())) continue;
-    if (paramValue === undefined || paramValue === "") continue;
+    if ((paramValue === undefined || paramValue === "") && !isEmptyOp(paramName)) continue;
     // Forward the ORIGINAL key (preserves S<n>_ prefix so runChain can pin the step)
     if (paramMatchesAllowed(paramName, rootColumns, allowedList)) {
       admitted[paramName] = paramValue;
@@ -110,7 +113,7 @@ function admitTraceParams(
       : "";
     throw new Error(
       `Unknown parameter(s): ${rejected.join(", ")}.${hint} Allowed: ${known}. ` +
-      `Optional operator suffixes: __eq __like __in __between __gte __lte`,
+      `Optional operator suffixes: __eq __like __in __between __gte __lte __empty`,
     );
   }
 
@@ -867,7 +870,7 @@ const apiRoutes = new Elysia()
 
       // 2. Perform server-side left-join of all steps
       console.error(`[TRACE] combineSteps starting...`);
-      const combinedRows = endpointService.combineSteps(result.steps, ep.config);
+      const combinedRows = endpointService.combineSteps(result.steps, ep.config, result.seededSteps, result.emptyCols);
       console.error(`[TRACE] combineSteps returned ${combinedRows.length} rows`);
 
       // 3. Filter combined rows in-memory (bare = legacy substring; `__gte`/`__lte`/`__between`/`__in`/`__eq`/`__like` = operator)
@@ -925,7 +928,7 @@ const apiRoutes = new Elysia()
       // 1. Process query params
       const { format, ...queryParams } = query as Record<string, string>;
       for (const [k, v] of Object.entries(queryParams)) {
-        if (v !== undefined && v !== "") {
+        if ((v !== undefined && v !== "") || isEmptyOp(k)) {
           mergedParams[k] = String(v);
         }
       }
@@ -982,7 +985,7 @@ const apiRoutes = new Elysia()
       }
       if (bodyParams && typeof bodyParams === "object") {
         for (const [k, v] of Object.entries(bodyParams as Record<string, unknown>)) {
-          if (v !== undefined && v !== null && v !== "") {
+          if ((v !== undefined && v !== null && v !== "") || isEmptyOp(k)) {
             if (Array.isArray(v)) {
               mergedParams[k] = v.join("\n");
             } else {
@@ -1011,7 +1014,7 @@ const apiRoutes = new Elysia()
 
       // 2. Perform server-side left-join of all steps
       console.error(`[TRACE] combineSteps starting...`);
-      const combinedRows = endpointService.combineSteps(result.steps, ep.config);
+      const combinedRows = endpointService.combineSteps(result.steps, ep.config, result.seededSteps, result.emptyCols);
       console.error(`[TRACE] combineSteps returned ${combinedRows.length} rows`);
 
       // 3. Filter combined rows in-memory (bare = legacy substring; `__gte`/`__lte`/`__between`/`__in`/`__eq`/`__like` = operator)

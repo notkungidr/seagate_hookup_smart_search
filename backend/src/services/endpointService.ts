@@ -230,7 +230,9 @@ export class EndpointService {
   }
 
   /** URL param operator suffixes — `col__gte=...`. Bare key keeps legacy auto behavior. */
-  private static readonly PARAM_OPS = ["eq", "like", "in", "between", "gte", "lte"];
+  // `empty` = cell is NULL/blank (incl. no joined row). Value ignored — `""` alone
+  // still means "not provided", so existing callers sending blank fields are unaffected.
+  private static readonly PARAM_OPS = ["eq", "like", "in", "between", "gte", "lte", "empty"];
 
   /** Parse `name__op` → { cleanName, op }. Unknown/absent suffix → op null (whole name is the column). */
   parseParamOperator(paramName: string): { cleanName: string; op: string | null } {
@@ -261,6 +263,13 @@ export class EndpointService {
     for (const [paramName, paramValue] of Object.entries(queryParams)) {
       if (this.isDatabaseParameter(config, paramName)) continue;
       const { cleanName, op } = this.parseParamOperator(paramName);
+      if (op === "empty") {
+        filtered = filtered.filter((row) => {
+          const v = row[cleanName] ?? row[cleanName.replace(/^S\d+_/i, "")];
+          return v == null || String(v).trim() === "";
+        });
+        continue;
+      }
       const rawString = String(paramValue ?? "").trim();
       if (!rawString) continue;
       const valList = rawString.split(/[\n,]+/).map(v => v.trim().toLowerCase()).filter(Boolean);
@@ -560,10 +569,15 @@ export class EndpointService {
   async runChain(
     config: EndpointConfig,
     queryParams: Record<string, string>
-  ): Promise<{ steps: { table: string; label: string; rows: Record<string, any>[]; availablePivots?: any[] }[] }> {
+  ): Promise<{ steps: { table: string; label: string; rows: Record<string, any>[]; availablePivots?: any[] }[]; seededSteps: number[]; emptyCols: string[] }> {
     // Every invocation, including legacy saved endpoints, enters the exact same
     // canonical template shape before any table/field resolution occurs.
     config = this.normalizeConfig(config);
+
+    // `__empty` params are NOT seeds (empty S2 must include "no S2 row at all",
+    // which SQL on S2 can't see) — pull them out, filter after combine.
+    const emptyParams = Object.keys(queryParams).filter((k) => this.parseParamOperator(k).op === "empty");
+    queryParams = Object.fromEntries(Object.entries(queryParams).filter(([k]) => !emptyParams.includes(k)));
     const totalSteps = config.hops.length + 1;
 
     // ── 1. Parse params into per-step seeds (honor S<n>_ prefix) ───────────────
@@ -818,9 +832,13 @@ export class EndpointService {
     // Sort seeds by step index so parents resolve before children
     let pendingSeeds = Object.keys(seedsByStep).map(Number).sort((a, b) => a - b);
     let seedGuard = 0;
+    // Seeds with no resolved ancestor anywhere up the chain (e.g. only ?S3_xxx= given)
+    // run standalone; BFS backward-pivots their parents afterwards.
+    const standalone = new Set<number>();
 
-    // Resolve seeds iteratively: try to resolve each, but defer if parent not ready yet
-    while (pendingSeeds.length > 0 && seedGuard++ < 20) {
+    // Resolve seeds iteratively: try to resolve each, but defer if parent not ready yet.
+    // Each stalled round resolves ≥1 step, so 2×steps bounds it.
+    while (pendingSeeds.length > 0 && seedGuard++ < (config.hops.length + 1) * 2) {
       const nextPending: number[] = [];
 
       for (const stepIdx of pendingSeeds) {
@@ -828,7 +846,7 @@ export class EndpointService {
 
         // If this step has a parent (step > 0) that isn't resolved yet, defer it
         // Parent might be seeded directly OR resolved via pivot from earlier steps
-        if (parentEdge && !resolved.has(parentEdge.parentIdx)) {
+        if (parentEdge && !resolved.has(parentEdge.parentIdx) && !standalone.has(stepIdx)) {
           console.error(`[BFS seed] deferring step ${stepIdx} — parent step ${parentEdge.parentIdx} not resolved yet`);
           nextPending.push(stepIdx);
           continue;
@@ -878,48 +896,52 @@ export class EndpointService {
 
       // If we have deferred seeds, try to resolve their parents via pivot
       if (nextPending.length > 0 && nextPending.length === pendingSeeds.length) {
-        // No progress in this iteration — need to pivot unresolved parents
+        // No progress in this iteration. Walk up from each stalled seed to its nearest
+        // resolved ancestor and pivot ONE step down that path (any depth, not just
+        // grandparent). Parent idx < child idx always, so the walk terminates at step 0.
+        let pivoted = false;
         for (const childIdx of nextPending) {
-          const parentEdge = parentMap.get(childIdx);
-          if (parentEdge && !resolved.has(parentEdge.parentIdx)) {
-            // Check if grandparent is resolved so we can pivot parent
-            const grandParentEdge = parentMap.get(parentEdge.parentIdx);
-            if (!grandParentEdge || resolved.has(grandParentEdge.parentIdx)) {
-              // Can pivot parent now
-              const fromIdx = grandParentEdge ? grandParentEdge.parentIdx : 0;
-
-              // Find the hop that connects fromIdx → parentIdx
-              const parentHop = config.hops.find((h, i) => this.hopSourceStep(h, i) === fromIdx && (i + 1) === parentEdge.parentIdx);
-              if (!parentHop) {
-                console.error(`[BFS eager pivot] ERROR: cannot find hop from step ${fromIdx} to step ${parentEdge.parentIdx}`);
-                break;
-              }
-
-              const fromTable = this.stepTable(config, fromIdx);
-              const fromServer = this.stepServer(config, fromIdx);
-              const fromLabel = this.resolveColumnLabel(fromTable, parentHop.fromColumnKey, fromServer);
-              const sourceValues = pivotService.extractValues(stepRows[fromIdx] || [], fromLabel);
-              console.error(`[BFS eager pivot] resolving step ${parentEdge.parentIdx} (${parentHop.targetTable}) from step ${fromIdx} column ${parentHop.fromColumnKey} to unblock seed step ${childIdx}`);
-
-              if (sourceValues.length > 0) {
-                const pr = await pivotService.pivot({
-                  sourceValues,
-                  targetTable: parentHop.targetTable,
-                  targetServer: parentHop.targetServer,
-                  targetColumn: parentHop.targetColumn,
-                  limit: 1000000
-                });
-                stepRows[parentEdge.parentIdx] = pr.rows;
-                stepInfo[parentEdge.parentIdx] = { table: parentHop.targetTable, label: pr.targetTableLabel, availablePivots: pr.availablePivots };
-                resolved.add(parentEdge.parentIdx);
-              } else {
-                stepRows[parentEdge.parentIdx] = [];
-                stepInfo[parentEdge.parentIdx] = { table: parentHop.targetTable, label: parentHop.targetTable, availablePivots: [] };
-                resolved.add(parentEdge.parentIdx);
-              }
-              break; // Restart outer loop
-            }
+          let below = childIdx;
+          let anc: number | undefined = parentMap.get(childIdx)?.parentIdx;
+          while (anc !== undefined && !resolved.has(anc)) {
+            below = anc;
+            anc = parentMap.get(anc)?.parentIdx;
           }
+          if (anc === undefined) continue; // no resolved ancestor on this path
+
+          const fromIdx = anc;
+          const parentHop = config.hops[below - 1]; // hop i targets step i+1
+          const fromTable = this.stepTable(config, fromIdx);
+          const fromServer = this.stepServer(config, fromIdx);
+          const fromLabel = this.resolveColumnLabel(fromTable, parentHop.fromColumnKey, fromServer);
+          const sourceValues = pivotService.extractValues(stepRows[fromIdx] || [], fromLabel);
+          console.error(`[BFS eager pivot] resolving step ${below} (${parentHop.targetTable}) from step ${fromIdx} column ${parentHop.fromColumnKey} to unblock seed step ${childIdx}`);
+
+          if (sourceValues.length > 0) {
+            const pr = await pivotService.pivot({
+              sourceValues,
+              targetTable: parentHop.targetTable,
+              targetServer: parentHop.targetServer,
+              targetColumn: parentHop.targetColumn,
+              limit: 1000000
+            });
+            stepRows[below] = pr.rows;
+            stepInfo[below] = { table: parentHop.targetTable, label: pr.targetTableLabel, availablePivots: pr.availablePivots };
+          } else {
+            stepRows[below] = [];
+            stepInfo[below] = { table: parentHop.targetTable, label: parentHop.targetTable, availablePivots: [] };
+          }
+          resolved.add(below);
+          pivoted = true;
+          break; // Restart outer loop
+        }
+
+        // Nothing upstream is resolved (e.g. only ?S3_xxx= given): run the top-most
+        // stalled seed standalone; BFS below backward-pivots its ancestors.
+        if (!pivoted) {
+          const top = Math.min(...nextPending);
+          console.error(`[BFS seed] step ${top} has no resolved ancestor — seeding standalone`);
+          standalone.add(top);
         }
       }
 
@@ -1018,7 +1040,19 @@ export class EndpointService {
     }));
     console.log("🔍 [runChain BFS] Seeds:", JSON.stringify(logSeeds, null, 2));
 
-    return { steps };
+    // Registry columns → combined-row key `S{n}_{label}`; others left to filterCombinedRows
+    const emptyCols: string[] = [];
+    for (const p of emptyParams) {
+      const name = this.parseParamOperator(p).cleanName;
+      const m = name.match(/^S(\d+)_(.+)$/i);
+      const idx = m ? Number(m[1]) - 1 : findStepWithColumn(name);
+      const col = m ? m[2] : name;
+      if (idx < 0 || idx >= totalSteps) continue;
+      try { this.resolveColumnKey(this.stepTable(config, idx), col, "API parameter", this.stepServer(config, idx)); } catch { continue; }
+      emptyCols.push(`S${idx + 1}_${this.resolveColumnLabel(this.stepTable(config, idx), col, this.stepServer(config, idx))}`);
+    }
+
+    return { steps, seededSteps: Object.keys(seedsByStep).map(Number), emptyCols };
   }
 
   /** Table key for a step index: 0 = rootTable, n>0 = hops[n-1].targetTable */
@@ -1047,7 +1081,9 @@ export class EndpointService {
   // Perform left-join of all steps programmatically on the server, exactly matching useCombinedRows.js
   combineSteps(
     steps: { table: string; label: string; rows: Record<string, any>[] }[],
-    config: EndpointConfig
+    config: EndpointConfig,
+    seededSteps: number[] = [],
+    emptyCols: string[] = []
   ): Record<string, any>[] {
     config = this.normalizeConfig(config);
     console.log(`[combineSteps] Starting with ${steps.length} steps:`, steps.map((s,i) => `${i}:${s.table}(${s.rows.length})`).join(' '));
@@ -1275,6 +1311,21 @@ export class EndpointService {
       }
 
       outputRows.splice(0, outputRows.length, ...expandedRows);
+    }
+
+    // A step filtered by a param/condition (seeded) is a WHERE, not optional data:
+    // drop rows that LEFT-JOINed to nothing on it (else ?S4_x=0 returns S4 nulls).
+    const mustMatch = seededSteps.filter((s) => s !== baseIdx && joined.has(s));
+    if (mustMatch.length > 0) {
+      const kept = outputRows.filter((r) => mustMatch.every((s) => r[`S${s + 1}_Status`] === "MATCH"));
+      console.log(`[combineSteps] seeded steps [${mustMatch.join(",")}] must MATCH: ${outputRows.length} → ${kept.length} rows`);
+      outputRows.splice(0, outputRows.length, ...kept);
+    }
+    // `__empty`: before visibleCols projection, which may drop these keys
+    if (emptyCols.length > 0) {
+      const kept = outputRows.filter((r) => emptyCols.every((c) => r[c] == null || String(r[c]).trim() === ""));
+      console.log(`[combineSteps] __empty [${emptyCols.join(",")}]: ${outputRows.length} → ${kept.length} rows`);
+      outputRows.splice(0, outputRows.length, ...kept);
     }
 
     // Filter by visible cols if specified

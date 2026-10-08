@@ -83,4 +83,25 @@ const { combinedColSteps, combinedColOrigins } = useCombinedRows({
 assert.strictEqual(combinedColSteps.value['S2_Serial No'], 1, 'colSteps ต้องชี้ step ของ master');
 assert.strictEqual(combinedColOrigins.value['S2_Serial No'], 'Serial No', 'colOrigins ต้องคืนชื่อเดิม (favoriteColumns เก่าพึ่งตัวนี้)');
 
-console.log('OK — 6 rows, master grain ครบ, suppressed 6, ทุกคอลัมน์มีป้าย S');
+// table ที่ไม่อยู่ใน tablesMeta (static-only เช่น scan1): _joinToColumn = 'hookup' แต่ rows key = 'Hookup (SN)'
+// เดิม lookup ด้วย 'hookup' → NA (WIP) ทั้ง step
+const staticSteps = shallowRef([
+  { _uid: 1, table: 'scan21', targetTable: 'scan21', rows: [{ 'Hookup (SN)': 'SN1 X' }, { 'Hookup (SN)': 'SN2 X' }] },
+  {
+    _uid: 2, table: 'scan1', targetTable: 'scan1', rows: [{ 'Hookup (SN)': 'SN1 X', PCCA: 'P1' }],
+    _pivotFromStepIdx: 0, _joinFromDbColumn: 'Hookup (SN)', _joinToColumn: 'hookup',
+  },
+]);
+const staticOnly = useCombinedRows({
+  chainSteps: staticSteps,
+  tablesMeta: ref([{ key: 'scan21', columns: [{ key: 'hookup', dbColumn: 'hookup', label: 'Hookup (SN)' }] }]),
+  getFilteredRows: (idx) => staticSteps.value[idx]?.rows ?? [],
+  getGridColumns: (step) => Object.keys(step.rows[0] ?? {}),
+});
+const sRows = staticOnly.combinedData.value;
+const sn1 = sRows.find((r) => r['S1_Hookup (SN)'] === 'SN1 X');
+assert.strictEqual(sn1?.S2_Status, 'MATCH', `static-only table join หลุด: ${JSON.stringify(sRows)}`);
+assert.strictEqual(sn1?.S2_PCCA, 'P1', 'S2 columns ควรมีค่า');
+
+console.log('OK — 6 rows, master grain ครบ, suppressed 6, ทุกคอลัมน์มีป้าย S, static-only join ติด');
+

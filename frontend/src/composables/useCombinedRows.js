@@ -119,12 +119,21 @@ export function useCombinedRows({
     return POSSIBLE_JOIN_KEYS.find((key) => keys.includes(key)) ?? keys[0] ?? null;
   }
 
-  function resolveDbColumn(tableKey, key) {
+  function resolveDbColumn(tableKey, key, rows) {
     if (!tableKey || !key) return key;
     const table = tablesMeta.value.find((item) => item.key === tableKey);
-    if (!table) return key;
-    const col = table.columns.find((item) => item.key === key || item.dbColumn === key || item.label === key);
-    return col ? col.label : key;
+    const col = table?.columns.find((item) => item.key === key || item.dbColumn === key || item.label === key);
+    const resolved = col ? col.label : key;
+    // ponytail: table ที่อยู่แค่ static TABLE_REGISTRY (เช่น scan1) ไม่มีใน tablesMeta → ได้ key ดิบ 'hookup'
+    // แต่ rows ถูก key ด้วย label 'Hookup (SN)' → lookup ว่างทั้ง step ตรวจกับ key จริงของ rows ก่อนคืนค่า
+    const rowKeys = rows?.length ? Object.keys(rows[0]) : null;
+    if (!rowKeys || rowKeys.includes(resolved)) return resolved;
+    const lower = String(key).toLowerCase();
+    const exact = rowKeys.find((k) => k.toLowerCase() === lower);
+    if (exact) return exact;
+    // label มักเป็น "Hookup (SN)" / "PT No" — เทียบแบบตัดวงเล็บ/ช่องว่าง/underscore
+    const norm = (s) => String(s).toLowerCase().replace(/\s*\(.*?\)\s*/g, '').replace(/[\s_]/g, '');
+    return rowKeys.find((k) => norm(k) === norm(key)) ?? resolved;
   }
 
   function getJoinColumns(parentIdx, childIdx, parentRows, childRows) {
@@ -150,14 +159,14 @@ export function useCombinedRows({
 
     // Resolve parent side column using stepA's metadata
     if (leftCol && stepA) {
-      leftCol = resolveDbColumn(stepA.targetTable || stepA.table, leftCol);
+      leftCol = resolveDbColumn(stepA.targetTable || stepA.table, leftCol, parentRows);
     } else {
       leftCol = detectJoinKey(parentRows);
     }
 
     // Resolve child side column using stepB's metadata
     if (rightCol && stepB) {
-      rightCol = resolveDbColumn(stepB.targetTable || stepB.table, rightCol);
+      rightCol = resolveDbColumn(stepB.targetTable || stepB.table, rightCol, childRows);
     } else {
       rightCol = detectJoinKey(childRows);
     }
