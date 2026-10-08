@@ -245,7 +245,7 @@
                 Enable this if you need custom filters, cross-DB query syntax, hardcoded parameters, or joins.
               </p>
               <p v-if="isOracleTarget" class="section-desc-hint" style="color: var(--c-warning);">
-                Oracle: ใช้ Test Query ทดสอบ SQL ได้ (ใส่ ? เป็น bind) แต่ยังบันทึกเป็น Custom SQL table ไม่ได้
+                Oracle: SQL จะถูกห่อเป็น subquery — ไม่ต้องใส่ ?col IN (?) / ห้ามมี backtick; ชื่อคอลัมน์ใน Columns ต้องตรงกับผลลัพธ์ของ SELECT (ตัวพิมพ์ใหญ่)
               </p>
             </div>
 
@@ -1056,10 +1056,10 @@ async function autoDetectColumns() {
       headers: getAuthHeaders(), // admin-only route — ต้องแนบ x-user-en
       body: JSON.stringify({
         connectionKey: form.value.connectionKey,
-        tableName: form.value.tableName,
+        tableName: form.value.tableName.trim(),
       })
     });
-    
+
     const result = await res.json();
     if (result.success && Array.isArray(result.data)) {
       // Map columns
@@ -1220,11 +1220,6 @@ async function saveTableConfig() {
   }
   if (form.value.columns.length === 0) {
     ElMessage.warning('Please configure at least one column (run Auto-Detect first).');
-    return;
-  }
-  // ตรงกับ backend guard — Oracle ทดสอบ SQL ได้ แต่ยังบันทึกเป็น Custom SQL table ไม่ได้
-  if (isOracleTarget.value && form.value.useCustomSql) {
-    ElMessage.error('Custom SQL ยังไม่รองรับ Oracle — ปิด Custom SQL แล้วใช้ตารางแบบปกติ (Test Query ใช้ทดสอบได้)');
     return;
   }
 
