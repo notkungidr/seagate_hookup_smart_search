@@ -75,15 +75,15 @@ export const CONNECTION_CONFIGS = {
     database: "WMS",
   },
   SeagateDev: {
-    host:"sghu-db01.th.belton.corp",
-    user: "intranet4",
-    password: "Mydb-Bit2007Jan",
+    host:"devth-db2",
+    user: "adminapp",
+    password: "It-development2006Bit",
     database: "seagate",
   },
   seagateACADev: {
-    host: "devth-db2",
-    user: "adminapp",
-    password: "It-development2006Bit",
+    host: "sghu-db01.th.belton.corp",
+    user: "intranet4",
+    password: "Mydb-Bit2007Jan",
     database: "ACA",
   },
   SGCOIL: {
