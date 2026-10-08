@@ -401,6 +401,9 @@ export class RegistryService {
       throw new Error(`ไม่พบ Connection Key "${connKey}"`);
     }
 
+    // ตัดช่องว่าง/ขึ้นบรรทัดที่ติดมาจากการ copy-paste (ไม่งั้น regex ด้านล่าง reject)
+    tableName = tableName.trim();
+
     // Support dot-notation: "BIT.ACA_BONDING_DATA" or plain "ACA_BONDING_DATA"
     // Needed for connections where database = undefined (e.g. Bitintra)
     const partRegex = /^[A-Za-z0-9_]{1,100}$/;
