@@ -724,6 +724,14 @@ export function limitSql(sql: string, n: number, oracle = false): string {
   return oracle ? `SELECT * FROM (${sql}) WHERE ROWNUM <= ${n}` : `${sql} LIMIT ${n}`;
 }
 
+// HELPER: ตัด "AND ?col IN (?)" + ";" ท้าย customSql template ออก → ใช้เป็น subquery ได้
+// (รองรับ `?col` แบบ MySQL และ "?col" แบบ Oracle)
+export function stripCustomSqlColFilter(template: string): string {
+  let s = template.replace(/\s+AND\s+[`"]?\??col[`"]?\s+IN\s*\(?\s*\?\s*\)?/gi, "").trim();
+  if (s.endsWith(";")) s = s.slice(0, -1).trim();
+  return s;
+}
+
 // ============================================================
 // HELPER: แปลงคีย์ของ Row ในผลลัพธ์เป็น Label ที่กำหนดไว้
 // ============================================================

@@ -20,19 +20,26 @@ export function toOracleBinds(sql: string): string {
   return sql.replace(/\?/g, () => `:${++n}`);
 }
 
-// thick mode เปิดเมื่อมี ORACLE_INSTANT_CLIENT_PATH (ชื่อเดียวกับ budget-report) — ต้องเรียกก่อนสร้าง pool แรก, process-wide
-// EBS ใช้ password verifier เก่า (0x939) → thin mode ต่อไม่ได้ (NJS-116) ต้อง thick เสมอสำหรับ EBS
+// thick mode เสมอ — EBS ใช้ password verifier เก่า (0x939) → thin mode ต่อไม่ได้ (NJS-116)
+// ต้องเรียกก่อนสร้าง pool แรก, process-wide (เรียกเฉพาะตอนสร้าง Oracle pool → MySQL ไม่กระทบ)
+// libDir: ORACLE_INSTANT_CLIENT_PATH ถ้ามี (Dockerfile ตั้งให้) → Windows dev default C:\oracle
+// → Linux ไม่มีค่า: ใช้ ld.so.conf / LD_LIBRARY_PATH
 let _clientInitDone = false;
 function initClientOnce(): void {
   if (_clientInitDone) return;
   _clientInitDone = true;
-  const libDir = process.env.ORACLE_INSTANT_CLIENT_PATH;
-  if (libDir) {
-    oracledb.initOracleClient({ libDir });
-    console.log(`[DB Pool] oracledb thick mode (libDir=${libDir})`);
-  } else {
-    console.log("[DB Pool] oracledb thin mode");
+  const libDir =
+    process.env.ORACLE_INSTANT_CLIENT_PATH || (process.platform === "win32" ? "C:\\oracle" : undefined);
+  try {
+    oracledb.initOracleClient(libDir ? { libDir } : undefined);
+  } catch (err) {
+    _clientInitDone = false; // ให้ลองใหม่ได้หลังติดตั้ง/แก้ path
+    throw new Error(
+      `Oracle Instant Client โหลดไม่ได้ (libDir=${libDir ?? "system path"}) — ` +
+        `ติดตั้ง Instant Client หรือตั้ง ORACLE_INSTANT_CLIENT_PATH: ${(err as Error).message}`
+    );
   }
+  console.log(`[DB Pool] oracledb thick mode (libDir=${libDir ?? "system path"})`);
 }
 
 // DATE/TIMESTAMP → "YYYY-MM-DD HH24:MI:SS" string ให้ตรงกับ mysql2 dateStrings:true

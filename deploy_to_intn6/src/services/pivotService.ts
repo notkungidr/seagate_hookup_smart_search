@@ -1,6 +1,6 @@
 import { db, dbBitintra, getDb, getRawPool, resolveConnConfig, isOracleConn } from "../db/client";
 import { sql } from "drizzle-orm";
-import { getTableMeta, getTableMetaForConnection, TABLE_REGISTRY, getDynamicRegistry, TableMeta, buildSelectClause, mapRowToLabels, quoteTableRef, quoteColumnRef } from "../config/tableRegistry";
+import { getTableMeta, getTableMetaForConnection, TABLE_REGISTRY, getDynamicRegistry, TableMeta, buildSelectClause, mapRowToLabels, quoteTableRef, quoteColumnRef, stripCustomSqlColFilter } from "../config/tableRegistry";
 
 import { BATCH_SIZE } from "../config/appConfig";
 import { ORACLE_CUSTOM_SQL_UNSUPPORTED } from "../db/oracle";
@@ -198,8 +198,8 @@ export class PivotService {
     const { sourceValues, targetTable, targetColumn, limit = 1000000 } = params;
     const customSql = tableMeta.customSql!;
     const connKey = customSql.connectionKey;
-    if (isOracleConn(connKey)) throw new Error(ORACLE_CUSTOM_SQL_UNSUPPORTED);
-    const queryDb = getDb(connKey);
+    const oraTemplate = isOracleConn(connKey) ? (customSql as any).customSql as string | undefined : undefined;
+    if (isOracleConn(connKey) && !oraTemplate) throw new Error(ORACLE_CUSTOM_SQL_UNSUPPORTED);
 
     // Resolve dbColumn key
     const exactColumnKey = Object.keys(tableMeta.columns).find(
@@ -222,6 +222,11 @@ export class PivotService {
         rows: [],
         availablePivots: [],
       };
+    }
+
+    // Oracle: ห่อ template เป็น subquery แล้วใช้ raw-pool path (quote/batch 1000 ของ Oracle)
+    if (oraTemplate) {
+      return this._pivotWithRawPool(params, tableMeta, connKey, dbCol, uniqueValues, limit, stripCustomSqlColFilter(oraTemplate));
     }
 
     const allRows: Record<string, any>[] = [];
@@ -472,6 +477,7 @@ export class PivotService {
     dbCol: string,
     uniqueValues: string[],
     limit: number,
+    fromSql?: string, // customSql template → ใช้เป็น subquery แทนชื่อตาราง
   ): Promise<PivotResult> {
     const { targetTable, targetColumn } = params;
     const rawPool = getRawPool(connKey as any);
@@ -491,8 +497,10 @@ export class PivotService {
     for (let i = 0; i < uniqueValues.length; i += batchSize) {
       const batch = uniqueValues.slice(i, i + batchSize);
       const placeholders = batch.map(() => "?").join(", ");
-      const escapedCol = quoteColumnRef(dbCol, ora);
-      const rawSql = `SELECT * FROM ${quoteTableRef(dbTable, ora)} WHERE ${escapedCol} IN (${placeholders})`;
+      // นอก subquery อ้าง alias.col ไม่ได้ → ใช้เฉพาะชื่อคอลัมน์ท้ายสุด
+      const escapedCol = quoteColumnRef(fromSql ? dbCol.split(".").pop()! : dbCol, ora);
+      const fromRef = fromSql ? `(${fromSql})` : quoteTableRef(dbTable, ora);
+      const rawSql = `SELECT * FROM ${fromRef} WHERE ${escapedCol} IN (${placeholders})`;
 
       console.log(`\n\x1b[36m╔══════════ [SQL Debug - RawPool Pivot (${connKey}${ora ? ", oracle" : ""}) Batch ${Math.floor(i / batchSize) + 1}] ══════════\x1b[0m`);
       console.log(`\x1b[36m║\x1b[0m \x1b[1mConnection :\x1b[0m ${connKey}`);

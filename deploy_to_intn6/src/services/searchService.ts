@@ -1,6 +1,6 @@
 import { db, dbACA, dbBitintra, getDb, getRawPool, resolveConnConfig, isOracleConn } from "../db/client";
 import { sql } from "drizzle-orm";
-import { getTableMeta, getTableMetaForConnection, TABLE_REGISTRY, TableMeta, buildSelectClause, mapRowToLabels, quoteTableRef, quoteColumnRef, limitSql } from "../config/tableRegistry";
+import { getTableMeta, getTableMetaForConnection, TABLE_REGISTRY, TableMeta, buildSelectClause, mapRowToLabels, quoteTableRef, quoteColumnRef, limitSql, stripCustomSqlColFilter } from "../config/tableRegistry";
 
 import { BATCH_SIZE } from "../config/appConfig";
 import { ORACLE_CUSTOM_SQL_UNSUPPORTED } from "../db/oracle";
@@ -314,7 +314,12 @@ export class SearchService {
     const { table, limit = 1000000 } = params;
     const customSql = tableMeta.customSql!;
     const connKey = customSql.connectionKey;
-    if (isOracleConn(connKey)) throw new Error(ORACLE_CUSTOM_SQL_UNSUPPORTED);
+    if (isOracleConn(connKey)) {
+      // Oracle: ห่อ template เป็น subquery แล้วใช้ raw-pool path (quote/ROWNUM/batch 1000 ของ Oracle)
+      const template = (customSql as any).customSql;
+      if (!template) throw new Error(ORACLE_CUSTOM_SQL_UNSUPPORTED);
+      return this._searchWithRawPool(params, tableMeta, connKey, conditionsList, limit, stripCustomSqlColFilter(template));
+    }
     const rawPool = getRawPool(connKey);
 
     const executedQueries: { sql: string; params: any[] }[] = [];
@@ -1009,11 +1014,15 @@ export class SearchService {
     connKey: string,
     conditionsList: SearchCondition[],
     limit: number,
+    fromSql?: string, // customSql template → ใช้เป็น subquery แทนชื่อตาราง
   ): Promise<SearchResult> {
     const { table } = params;
     const rawPool = getRawPool(connKey as any);
     const dbTable = tableMeta.dbTable || tableMeta.tableName; // e.g. "ACA_BONDING_DATA" หรือ "BIT.X"
     const ora = isOracleConn(connKey);
+    const fromRef = fromSql ? `(${fromSql})` : quoteTableRef(dbTable, ora);
+    // นอก subquery อ้าง alias.col ไม่ได้ → ใช้เฉพาะชื่อคอลัมน์ท้ายสุด
+    const colRef = (c: string) => quoteColumnRef(fromSql ? c.split(".").pop()! : c, ora);
     // Oracle IN list สูงสุด 1000 ค่า (ORA-01795)
     const batchSize = ora ? Math.min(BATCH_SIZE, 1000) : BATCH_SIZE;
 
@@ -1031,7 +1040,7 @@ export class SearchService {
       if (uniqueValues.length === 0) throw new Error("ไม่มีค่าสำหรับ IN query");
 
       const colMetaIn = tableMeta.columns[inCondition.column];
-      const dbColIn = quoteColumnRef(colMetaIn.dbColumn, ora);
+      const dbColIn = colRef(colMetaIn.dbColumn);
 
       for (let i = 0; i < uniqueValues.length; i += batchSize) {
         const batch = uniqueValues.slice(i, i + batchSize);
@@ -1048,7 +1057,7 @@ export class SearchService {
           if (cond === inCondition) continue;
           const colMeta = tableMeta.columns[cond.column];
           if (!colMeta) continue;
-          const dbCol = quoteColumnRef(colMeta.dbColumn, ora);
+          const dbCol = colRef(colMeta.dbColumn);
 
           if (cond.operator === "like" && cond.value) {
             whereParts.push(`${dbCol} LIKE ?`);
@@ -1079,7 +1088,7 @@ export class SearchService {
         }
 
         const whereClause = whereParts.join(" AND ");
-        const rawSql = limitSql(`SELECT * FROM ${quoteTableRef(dbTable, ora)} WHERE ${whereClause}`, limit, ora);
+        const rawSql = limitSql(`SELECT * FROM ${fromRef} WHERE ${whereClause}`, limit, ora);
 
         if (i === 0) {
           executedQueries.push({ sql: rawSql, params: sqlParams });
@@ -1106,7 +1115,7 @@ export class SearchService {
       for (const cond of conditionsList) {
         const colMeta = tableMeta.columns[cond.column];
         if (!colMeta) continue;
-        const dbCol = quoteColumnRef(colMeta.dbColumn, ora);
+        const dbCol = colRef(colMeta.dbColumn);
 
         if (cond.operator === "like" && cond.value) {
           whereParts.push(`${dbCol} LIKE ?`);
@@ -1127,7 +1136,7 @@ export class SearchService {
       }
 
       const whereClause = whereParts.length > 0 ? whereParts.join(" AND ") : "1=1";
-      const rawSql = limitSql(`SELECT * FROM ${quoteTableRef(dbTable, ora)} WHERE ${whereClause}`, limit, ora);
+      const rawSql = limitSql(`SELECT * FROM ${fromRef} WHERE ${whereClause}`, limit, ora);
 
       console.log(`\n\x1b[36m╔══════════ [SQL Debug - RawPool Search (${connKey}${ora ? ", oracle" : ""})] ══════════\x1b[0m`);
       console.log(`\x1b[36m║\x1b[0m \x1b[1mDatabase:\x1b[0m ${connKey}`);
