@@ -4,5 +4,4 @@ node_modules
 Dockerfile
 docker-compose.yml
 bun.lockb
-bun.lock
 dist

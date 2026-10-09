@@ -22,6 +22,11 @@ services:
       - SSL_CERT_PATH=/etc/httpd/conf/ssl.crt/beltontechnology_com.crt
       - SSL_KEY_PATH=/etc/httpd/conf/ssl.crt/beltontechnology_com.key
       - SSL_CA_PATH=/etc/httpd/conf/ssl.crt/beltontechnology_com.ca-bundle
+       # Oracle Database
+      - ORACLE_USER=BGDEVLP2
+      - ORACLE_PASSWORD=devlp2bg1028
+      - ORACLE_CONNECT_STRING=erpdb.belton.corp:1538/ebs_PRD
+      - ORACLE_THICK_MODE=true
       # - TZ=Asia/Bangkok (Optional: set timezone)
     
     # Resource limits (adjust based on your server)

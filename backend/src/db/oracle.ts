@@ -6,10 +6,14 @@ export const ORACLE_CUSTOM_SQL_UNSUPPORTED = "Custom SQL ยังไม่ร�
 
 export type OracleConnConfig = { host: string; port?: number; user: string; password?: string; database?: string };
 
-// Oracle ต่อด้วย SID (field database ของ ConnConfig = SID) — ยืนยันกับ EBS ebs_PRD แล้ว
-// ponytail: ไม่มีตัวเลือก SERVICE_NAME — เพิ่ม field connect_by เมื่อเจอ DB ที่ต่อด้วย SID ไม่ได้ (ORA-12505)
+// Oracle ต่อด้วย SERVICE_NAME (field database ของ ConnConfig = service name)
+// เดิมใช้ SID แล้ว EBS ebs_PRD ตอบ ORA-12541 ทั้งที่ nc ถึง port 1538 ได้ —
+// พิสูจน์บน devth-app6 แล้วว่า easy-connect 'host:1538/ebs_PRD' (service name) ต่อถึง listener
+// แต่ได้ ORA-01017 แทน = ถึง listener แล้ว เหลือแค่ user/pass ผิด
+// (easy-connect หลัง '/' คือ service name — ดู docker-compose ORACLE_CONNECT_STRING)
+// ponytail: ถ้าวันหนึ่งเจอ DB ที่ต้องใช้ SID จริง ให้เพิ่ม field connect_by (sid|service) แทนการ hardcode
 export function buildConnectString(cfg: OracleConnConfig): string {
-  return `(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=${cfg.host})(PORT=${cfg.port ?? 1521}))(CONNECT_DATA=(SID=${cfg.database ?? ""})))`;
+  return `(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=${cfg.host})(PORT=${cfg.port ?? 1521}))(CONNECT_DATA=(SERVICE_NAME=${cfg.database ?? ""})))`;
 }
 
 // mysql "?" → oracle ":1, :2, ..."

@@ -22,9 +22,8 @@ ENV ORACLE_INSTANT_CLIENT_PATH=/opt/oracle/instantclient_21_14
 
 WORKDIR /usr/src/app
 
-# Install dependencies in a cache-friendly way
-# We only copy package.json and skip the lockfile to avoid version mismatch errors
-COPY package.json ./
+# Install dependencies in a cache-friendly way (package.json + bun.lock ให้ตรงกับ host)
+COPY package.json bun.lock ./
 RUN bun install
 
 # Copy all source files

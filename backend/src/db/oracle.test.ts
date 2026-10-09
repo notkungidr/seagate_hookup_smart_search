@@ -3,9 +3,9 @@ import { test, expect } from "bun:test";
 import { buildConnectString, toOracleBinds } from "./oracle";
 import { quoteTableRef, quoteColumnRef, limitSql } from "../config/tableRegistry";
 
-test("connect descriptor uses SID + default port 1521", () => {
+test("connect descriptor uses SERVICE_NAME + default port 1521", () => {
   expect(buildConnectString({ host: "erp", user: "u", database: "PROD" }))
-    .toBe("(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=erp)(PORT=1521))(CONNECT_DATA=(SID=PROD)))");
+    .toBe("(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=erp)(PORT=1521))(CONNECT_DATA=(SERVICE_NAME=PROD)))");
   expect(buildConnectString({ host: "erp", port: 1538, user: "u", database: "PROD" })).toContain("(PORT=1538)");
 });
 
